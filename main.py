@@ -1,6 +1,6 @@
 import argparse
 
-from test_looper.git import GIT
+from test_looper.runner import TestRunner
 
 parser = argparse.ArgumentParser(description="Test Looper")
 
@@ -15,8 +15,9 @@ gitargs.add_argument('--git-token')
 gitargs.add_argument('--add-repo')
 
 def main(args):
-    git = GIT(user=args.git_username, token=args.git_token)
-    print("Authenticated: %s" % git.authenticated)
+    runner = TestRunner()
+    runner.setup()
+    runner.run()
 
 if __name__ == '__main__':
     args = parser.parse_args()

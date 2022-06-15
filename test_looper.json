@@ -1,0 +1,5 @@
+{
+    "test_commands": [
+        {"command": "pytest", "args": ["./tests"]}
+    ]
+}

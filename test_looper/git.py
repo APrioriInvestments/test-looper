@@ -17,7 +17,9 @@ class GIT:
         "I test credentials and set self.authenticated accordingly"
         self.session.auth = (self.user, self.token)
         # check the credentials are valid
-        response = self.session.get('https://api.github.com/users/%s' % self.user)
+        response = self.session.get(
+            'https://api.github.com/users/%s' % self.user
+        )
         if(response.headers['X-RateLimit-Limit'] == '5000'):
             self.authenticated = True
         elif(self.require_auth):

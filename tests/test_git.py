@@ -22,6 +22,12 @@ class TestGit:
             print("No credentials found; continuing")
             self.GIT()
 
+    def test_success(self):
+        assert 1 == 1
+
+    def test_fail(self):
+        assert 0 == 1
+
     classmethod
     def teardown_class(self):
         return
