@@ -133,3 +133,5 @@ dmypy.json
 
 # intellij
 .idea
+
+.test-looper-report*

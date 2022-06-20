@@ -1,9 +1,10 @@
 # The TestRunner class provides methods for running tests
 # capturing and processing output
-
-import os
+import contextlib
 import json
-import subprocess
+import os
+from abc import ABC, abstractmethod
+from datetime import datetime
 
 
 class TestRunner:
@@ -12,6 +13,7 @@ class TestRunner:
     """
 
     def __init__(self, repo_dir: str, runner_file_name='test_looper.json'):
+        self.repo_dir = repo_dir
         self.runner_file = os.path.join(repo_dir, runner_file_name)
         self._test_commands = None
 
@@ -34,18 +36,95 @@ class TestRunner:
         self._test_commands = command_data["test_commands"]
 
     def run(self):
+        results = []
         for command in self.test_commands:
-            _run_command(command["command"], command["args"])
+            runner = get_command_runner(self.repo_dir,
+                                        command["command"].lower().strip(),
+                                        command["args"])
+            results.append((command, runner.run_tests()))
+        return results
 
 
-def _run_command(command: str, args: list[str]):
-    popen_args = [command]
-    popen_args.extend(args)
-    with subprocess.Popen(
-            popen_args,
-            stdout=subprocess.PIPE, bufsize=1,
-            universal_newlines=True) as p:
-        for line in p.stdout:
-            # TODO: capture this stdout and do something
-            # useful with it
-            print(line, end="")
+def get_command_runner(repo_dir, command, args):
+    if command == 'pytest':
+        from .pytest import PytestRunner
+        return PytestRunner(repo_dir, args)
+    raise NotImplementedError(f"{command} is not yet supported")
+
+
+class CommandRunner(ABC):
+    """Abstract class to run a given test command"""
+
+    def __init__(self, repo_dir: str, args: list[str]):
+        self.repo_dir = repo_dir
+        self.args = args
+
+    @contextlib.contextmanager
+    def chdir(self):
+        old_dir = os.getcwd()
+        os.chdir(self.repo_dir)
+        try:
+            yield
+        finally:
+            os.chdir(old_dir)
+
+    @abstractmethod
+    def run_tests(self):
+        pass
+
+
+class TestSummary:
+    """Summary statistics for a given test command invocation"""
+
+    def __init__(self,
+                 environment: dict,
+                 root: str,
+                 retcode: int,
+                 started: float,
+                 duration: float,
+                 num_tests: int,
+                 num_succeeded: int,
+                 num_failed: int):
+        self.environment = environment
+        self.root = root
+        self.retcode = retcode
+        self.started = datetime.fromtimestamp(started)
+        self.duration = duration
+        self.num_tests = num_tests
+        self.num_succeeded = num_succeeded
+        self.num_failed = num_failed
+
+
+class TestStep:
+    """Stats for a given step of a test case (setup, test case call, teardown)"""
+
+    def __init__(self, status: str, duration: float, msg: str, info: dict):
+        self.status = status
+        self.duration = duration
+        self.msg = msg
+        self.info = info
+
+
+class TestCaseResult:
+    """Results for a single test case"""
+    def __init__(self,
+                 name: str,
+                 status: str,
+                 duration: float,
+                 setup: TestStep,
+                 testcase: TestStep,
+                 teardown: TestStep):
+        self.name = name
+        self.status = status
+        self.duration = duration
+        self.setup = setup
+        self.testcase = testcase
+        self.teardown = teardown
+
+
+class TestRunnerResult:
+    """Result wrapper for a single test command invocation"""
+    def __init__(self, summary: TestSummary, tests: list[TestCaseResult]):
+        self.summary = summary
+        self.results = tests
+
