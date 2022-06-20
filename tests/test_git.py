@@ -1,26 +1,31 @@
 import json
-from os import path
+import os
+
 from test_looper.git import GIT
 
 
 class TestGit:
+
+    GIT = None
+
     @classmethod
-    def setup_class(self):
-        "Check is git credentials are present"
+    def setup_class(cls):
+        """
+        Check is git credentials are present
+        """
         cred_file = "./.git_credentials"
-        if path.isfile(cred_file):
+        if os.path.isfile(cred_file):
             print("GIT credentials found")
             credentials = json.load(open(cred_file))
-            self.GIT = GIT(user=credentials["user"],
-                           token=credentials["token"])
-            self.GIT.authenticate()
-            if(self.GIT.authenticated):
+            cls.GIT = GIT(user=credentials["user"],
+                          token=credentials["token"])
+            cls.GIT.authenticate()
+            if cls.GIT.authenticated:
                 print("authenticated")
             else:
-                print("crednetials invalid; continuing with lower rate limit")
+                print("Credentials invalid; continuing with lower rate limit")
         else:
             print("No credentials found; continuing")
-            self.GIT()
 
     def test_success(self):
         assert 1 == 1
@@ -28,6 +33,6 @@ class TestGit:
     def test_fail(self):
         assert 0 == 1
 
-    classmethod
-    def teardown_class(self):
+    @classmethod
+    def teardown_class(cls):
         return

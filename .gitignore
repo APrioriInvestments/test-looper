@@ -130,3 +130,6 @@ dmypy.json
 
 # testing
 *.git_credentials
+
+# intellij
+.idea

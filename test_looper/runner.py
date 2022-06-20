@@ -7,14 +7,19 @@ import subprocess
 
 
 class TestRunner:
-    def __init__(self, runner_file_name="test_looper.json"):
-        # we are assuming that the runner file is located at the root
-        # of the repository
-        self.runner_file = os.path.join(
-            os.environ["TEST_LOOPER_ROOT"],
-            runner_file_name
-            )
-        self.test_commands = []
+    """
+    Run the tests for a given repo (excluding repo dependencies)
+    """
+
+    def __init__(self, repo_dir: str, runner_file_name='test_looper.json'):
+        self.runner_file = os.path.join(repo_dir, runner_file_name)
+        self._test_commands = None
+
+    @property
+    def test_commands(self):
+        if self._test_commands is None:
+            self.setup()
+        return self._test_commands
 
     def setup(self):
         """
@@ -23,21 +28,24 @@ class TestRunner:
         """
         if not os.path.isfile(self.runner_file):
             raise FileNotFoundError(
-                "Test runner file %s not found: exiting!" % (self.runner_file)
+                f"Test runner file {self.runner_file} not found: exiting!"
             )
         command_data = json.loads(open(self.runner_file).read())
-        self.test_commands = command_data["test_commands"]
+        self._test_commands = command_data["test_commands"]
 
     def run(self):
         for command in self.test_commands:
-            with subprocess.Popen(
-                    [command["command"]] + command["args"],
-                    stdout=subprocess.PIPE, bufsize=1,
-                    universal_newlines=True) as p:
-                for line in p.stdout:
-                    # TODO: capture this stdout and do something
-                    # useful with it
-                    print(line, end="")
+            _run_command(command["command"], command["args"])
 
-            # if p.returncode != 0:
-            #    raise subprocess.CalledProcessError(p.returncode, p.args)
+
+def _run_command(command: str, args: list[str]):
+    popen_args = [command]
+    popen_args.extend(args)
+    with subprocess.Popen(
+            popen_args,
+            stdout=subprocess.PIPE, bufsize=1,
+            universal_newlines=True) as p:
+        for line in p.stdout:
+            # TODO: capture this stdout and do something
+            # useful with it
+            print(line, end="")
