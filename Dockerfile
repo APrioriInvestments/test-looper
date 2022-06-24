@@ -1,7 +1,6 @@
-FROM ubuntu:18.04
+FROM python:3.10-slim
 RUN apt-get update && \
-    apt-get -y install python3 python3-pip \
-        git
+    apt-get -y install git
 # TODO: will need to setup git/ssh creds for private repos
 WORKDIR /code
 ENV REPODIR=$WORKDIR/repo
