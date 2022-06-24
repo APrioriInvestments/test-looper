@@ -3,7 +3,16 @@ import json
 import pytest
 import uuid
 
-from .runner import CommandRunner, TestRunnerResult, TestSummary, TestCaseResult, TestStep
+from collections import defaultdict
+
+from .runner import (
+    CommandRunner,
+    TestRunnerResult,
+    TestSummary,
+    TestCaseResult,
+    TestStep,
+    TestList
+)
 
 
 class PytestRunner(CommandRunner):
@@ -13,7 +22,7 @@ class PytestRunner(CommandRunner):
 
     def run_tests(self):
         report_file_name = f'.test-looper-report-{uuid.uuid4()}'
-        full_args = self.args
+        full_args = self.args.copy()
         full_args.append('--json-report')
         full_args.append('--json-report-file')
         full_args.append(report_file_name)
@@ -22,6 +31,24 @@ class PytestRunner(CommandRunner):
             return {
                 'retcode': retcode,
                 'results': parse_report(report_file_name)
+            }
+
+    def list_tests(self):
+        """
+        I run the tests commands with the --collect-only flag and
+        collect the result
+        """
+        report_file_name = f'.test-looper-test-list-{uuid.uuid4()}'
+        full_args = self.args.copy()
+        full_args.append('--json-report')
+        full_args.append('--json-report-file')
+        full_args.append(report_file_name)
+        full_args.append('--collect-only')
+        with self.chdir():
+            retcode = pytest.main(full_args)
+            return {
+                'retcode': retcode,
+                'results': parse_list_report(report_file_name)
             }
 
 
@@ -45,6 +72,13 @@ def parse_report(file_name):
         return TestRunnerResult(summary, test_case_results)
 
 
+def parse_list_report(file_name):
+    with open(file_name) as fh:
+        data = json.load(fh)
+        tests = parse_collector(data)
+        return TestList(tests)
+
+
 def parse_testcase_results(data):
     duration = (data.get('setup', {}).get('duration', 0) +
                 data.get('call', {}).get('duration', 0) +
@@ -58,6 +92,7 @@ def parse_testcase_results(data):
         teardown=parse_step(data['teardown'])
     )
 
+
 def parse_step(data):
     return TestStep(
         status=data['outcome'],
@@ -68,3 +103,20 @@ def parse_step(data):
             'traceback': data.get('traceback', [])
         }
     )
+
+
+def parse_collector(data):
+    """I parse the python test collector list."""
+    tests_dict = {}
+    for item in data['collectors']:
+        for test_item in item['result']:
+            if test_item['type'] == 'Function':
+                module_name, class_name, test_name = test_item[
+                    'nodeid'].split("::")
+                try:
+                    module_dict = tests_dict[module_name]
+                except KeyError:
+                    module_dict = defaultdict(list)
+                    tests_dict[module_name] = module_dict
+                module_dict[class_name].append(test_name)
+    return tests_dict

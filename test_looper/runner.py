@@ -34,6 +34,15 @@ class TestRunner:
             )
         command_data = json.loads(open(self.runner_file).read())
         self._test_commands = command_data["test_commands"]
+        
+    def list(self):
+        results = []
+        for command in self.test_commands:
+            runner = get_command_runner(self.repo_dir,
+                                        command["command"].lower().strip(),
+                                        command["args"])
+            results.append((command, runner.list_tests()))
+        return results
 
     def run(self):
         results = []
@@ -128,3 +137,7 @@ class TestRunnerResult:
         self.summary = summary
         self.results = tests
 
+class TestList:
+    """I contain a dictionary {module: {class: [test]}} of all tests"""
+    def __init__(self, tests: dict):
+        self.tests = tests
