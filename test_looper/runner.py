@@ -34,7 +34,7 @@ class TestRunner:
             )
         command_data = json.loads(open(self.runner_file).read())
         self._test_commands = command_data["test_commands"]
-        
+
     def list(self):
         results = []
         for command in self.test_commands:
@@ -47,10 +47,12 @@ class TestRunner:
     def run(self):
         results = []
         for command in self.test_commands:
-            runner = get_command_runner(self.repo_dir,
-                                        command["command"].lower().strip(),
-                                        command["args"])
-            results.append((command, runner.run_tests()))
+            # repeat as specified, default 1
+            for i in range(command.get("repeat", 1)):
+                runner = get_command_runner(self.repo_dir,
+                                            command["command"].lower().strip(),
+                                            command["args"])
+                results.append((command, runner.run_tests()))
         return results
 
 

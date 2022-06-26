@@ -20,9 +20,11 @@ def run(repo, file):
     assert set(command.keys()) == set(['command', 'args'])
     assert isinstance(results['retcode'].value, int)
     assert isinstance(results['results'], TestRunnerResult)
+    assert len(
+        [item for item in all_results if item[0]['args'] == [
+            'tests/test_git.py::TestGit::test_success']]) == 3
     assert isinstance(all_tests_results['retcode'].value, int)
     assert isinstance(all_tests_results['results'], TestList)
-
 
 if __name__ == '__main__':
     run()

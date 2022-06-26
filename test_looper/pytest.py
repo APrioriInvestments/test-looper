@@ -63,8 +63,8 @@ def parse_report(file_name):
             started=data['created'],
             duration=data['duration'],
             num_tests=summary['total'],
-            num_succeeded=summary['passed'],
-            num_failed=summary['failed']
+            num_succeeded=summary.get('passed', 0),  # for nodeid specified
+            num_failed=summary.get('failed', 0)  # tests pytest does not list
         )
         test_case_results = [
             parse_testcase_results(rs) for rs in data['tests']
