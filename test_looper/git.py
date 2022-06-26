@@ -1,6 +1,7 @@
 # The GIT class provides methods for interacting
 # with GIT, github and related utilities
 
+import os
 import sys
 import requests
 
@@ -28,3 +29,14 @@ class GIT:
             sys.exit("invalid github credentials")
         else:
             self.authenticated = False
+
+    def clone(self, repo, directory):
+        """
+        Parameters:
+        ----------
+        repo: str
+            local path or url for repo
+        directory: str
+            path to target directory 
+        """
+        return os.system(f'git clone {repo} {directory}')
