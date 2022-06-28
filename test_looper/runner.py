@@ -5,6 +5,7 @@ import json
 import os
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import List
 
 
 class TestRunner:
@@ -58,7 +59,7 @@ class TestRunner:
 
 def get_command_runner(repo_dir, command, args):
     if command == 'pytest':
-        from .pytest import PytestRunner
+        from .pytest_runner import PytestRunner
         return PytestRunner(repo_dir, args)
     raise NotImplementedError(f"{command} is not yet supported")
 
@@ -66,7 +67,7 @@ def get_command_runner(repo_dir, command, args):
 class CommandRunner(ABC):
     """Abstract class to run a given test command"""
 
-    def __init__(self, repo_dir: str, args: list[str]):
+    def __init__(self, repo_dir: str, args: List[str]):
         self.repo_dir = repo_dir
         self.args = args
 
@@ -135,9 +136,10 @@ class TestCaseResult:
 
 class TestRunnerResult:
     """Result wrapper for a single test command invocation"""
-    def __init__(self, summary: TestSummary, tests: list[TestCaseResult]):
+    def __init__(self, summary: TestSummary, tests: List[TestCaseResult]):
         self.summary = summary
         self.results = tests
+
 
 class TestList:
     """I contain a dictionary {module: {class: [test]}} of all tests"""

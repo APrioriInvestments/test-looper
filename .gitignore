@@ -135,3 +135,6 @@ dmypy.json
 .idea
 
 .test-looper-report*
+
+# jetbrains
+.idea/
