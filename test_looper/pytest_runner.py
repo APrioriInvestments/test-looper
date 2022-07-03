@@ -1,11 +1,10 @@
-
+from collections import defaultdict
 import json
 import pytest
+from typing import List
 import uuid
 
-from collections import defaultdict
-
-from .runner import (
+from test_looper.runner import (
     CommandRunner,
     TestRunnerResult,
     TestSummary,
@@ -17,7 +16,7 @@ from .runner import (
 
 class PytestRunner(CommandRunner):
 
-    def __init__(self, repo_dir: str, pytest_args: list[str]):
+    def __init__(self, repo_dir: str, pytest_args: List[str]):
         super().__init__(repo_dir, pytest_args)
 
     def run_tests(self):

@@ -1,5 +1,5 @@
 """Define the core objects and ODB schema for test-looper."""
-from typed_python import OneOf, Alternative, TupleOf, Dict
+from typed_python import OneOf, Alternative, TupleOf, Dict, NamedTuple
 from object_database import Schema, Indexed, Index, SubscribeLazilyByDefault
 
 
@@ -48,7 +48,6 @@ RepoConfig = Alternative(
         service=GitService
     )
 )
-
 
 
 ArtifactStorageConfig = Alternative(
@@ -232,22 +231,13 @@ class Branch:
 
 
 @test_looper_schema.define
-class Branch:
-    repo = Indexed(Repo)
-    name = str
-
-    repoAndName = Index('repo', 'name')
-    topCommit = Indexed(Commit)
-
-
-@test_looper_schema.define
 class TestNode:
-    commit = Indexed(Commit)
+    # commit = Indexed(Commit)
     name = str
 
-    commitAndName = Index('commit', 'name')
+    # commitAndName = Index('commit', 'name')
 
-    definition = TestNodeDefinition
+    # definition = TestNodeDefinition
 
     # None means we haven't run it yet
     # Fail means we couldn't do the build, list tests, or execute tests.
@@ -267,6 +257,7 @@ class TestNode:
 
     # crude proxy for the state machine we'll need to decide what to build/run
     needsMoreWork = Indexed(bool)
+
 
 @test_looper_schema.define
 @SubscribeLazilyByDefault
