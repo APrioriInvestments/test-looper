@@ -2,10 +2,11 @@
 General Tests for Test Looper
 """
 import os
-import sys
+# import sys
+import shutil
 import pytest
 
-from test_looper.git import GIT
+# from test_looper.git import GIT
 from test_looper.runner import TestRunner as TRunner
 from test_looper.runner import TestList as TList
 from test_looper.runner import TestRunnerResult as TRunnerResult
@@ -16,11 +17,13 @@ repo_path = '/tmp/test_repo'
 
 class TestTestLooper:
     def setup_class(cls):
-        git = GIT()
+        # git = GIT()
         # create a repo where tests will run
-        status = git.clone('tests/_template_repo', repo_path)
-        if status:
-            sys.exit("Could not clone test repo")
+        # status = git.clone('tests/_template_repo', repo_path)
+        # if status:
+        #    sys.exit("Could not clone test repo")
+        # copy the a template directory "repo" with tests
+        shutil.copytree('tests/_template_repo', repo_path, dirs_exist_ok=True)
 
     @pytest.fixture(autouse=True)
     def runner(self):
