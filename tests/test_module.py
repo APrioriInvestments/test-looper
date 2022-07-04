@@ -87,12 +87,24 @@ class TestTestLooper:
                 'tests/test.py::TestTest::test_success']]) == 3
 
     @pytest.mark.skipif(odb_connection is None, reason="no ODB connection instance found")
-    def test_odb(self, odb_connection):
+    def test_odb_empty(self, odb_connection):
         nodes = []
         with odb_connection.view():
             for n in TestNode.lookupAll():
                 nodes.append(n)
             assert len(nodes) == 0
+
+    @pytest.mark.skipif(odb_connection is None, reason="no ODB connection instance found")
+    def test_odb_lists(self, odb_connection):
+        results = self.runner.list()
+        reporter = OdbReporter(odb_connection)
+        [reporter.report_tests(test_list['results'].tests)
+         for command, test_list in results]
+        nodes = []
+        with odb_connection.view():
+            for n in TestNode.lookupAll():
+                nodes.append(n)
+            assert len(nodes) > 0
 
     @classmethod
     def teardown_class(self):
