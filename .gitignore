@@ -139,3 +139,8 @@ dmypy.json
 
 # jetbrains
 .idea/
+
+# vim
+*.swp
+*.swo
+*undo-tree*
