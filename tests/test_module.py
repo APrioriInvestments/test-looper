@@ -47,7 +47,7 @@ class TestTestLooper:
             )
             server.start()
             self.server = server
-        except Exception as e:
+        except Exception:
             print("unable to start ODB - skipping ODB dependent tests")
 
     @pytest.fixture(autouse=True)
@@ -57,7 +57,8 @@ class TestTestLooper:
 
     @pytest.fixture(scope="module")
     def odb_connection(self):
-        odb = connect(odb_server_host, odb_server_port, odb_server_token, retry=True)
+        odb = connect(odb_server_host, odb_server_port,
+                      odb_server_token, retry=True)
         odb.subscribeToSchema(test_looper_schema)
         return odb
 
@@ -86,7 +87,8 @@ class TestTestLooper:
             [item for item in all_results if item[0]['args'] == [
                 'tests/test.py::TestTest::test_success']]) == 3
 
-    @pytest.mark.skipif(odb_connection is None, reason="no ODB connection instance found")
+    @pytest.mark.skipif(odb_connection is None,
+                        reason="no ODB connection instance found")
     def test_odb_empty(self, odb_connection):
         nodes = []
         with odb_connection.view():
@@ -94,7 +96,8 @@ class TestTestLooper:
                 nodes.append(n)
             assert len(nodes) == 0
 
-    @pytest.mark.skipif(odb_connection is None, reason="no ODB connection instance found")
+    @pytest.mark.skipif(odb_connection is None,
+                        reason="no ODB connection instance found")
     def test_odb_lists(self, odb_connection):
         results = self.runner.list()
         reporter = OdbReporter(odb_connection)
