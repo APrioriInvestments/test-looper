@@ -87,8 +87,8 @@ def parse_testcase_results(data):
         status=data['outcome'],
         duration=duration,
         setup=parse_step(data['setup']),
-        testcase=parse_step(data['call']),
-        teardown=parse_step(data['teardown'])
+        testcase=parse_step(data.get('call', {})),
+        teardown=parse_step(data.get('teardown'))
     )
 
 

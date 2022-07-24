@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 """Integration with object database"""
+import click
 from collections import defaultdict
-
+from object_database import connect
+from test_looper.runner import TestRunner
 from test_looper.reporter import TestReporter
 from test_looper.schema import *
 
@@ -19,7 +21,7 @@ class OdbReporter(TestReporter):
                 name="test",
                 executionResultSummary=None,
                 testsDefined=len(flattened_tests),
-                needsMoreWork=True
+                needsMoreWork=False
             )
             print(node)
 
@@ -35,17 +37,20 @@ def _flatten(tests):
             raise NotImplementedError(f'{type(v)} not supported')
     return results
 
-
-if __name__ == '__main__':
-    from test_looper.runner import TestRunner
+@click.command()
+@click.option('-h', '--host', default='localhost')
+@click.option('-p', '--port', default='8000')
+@click.option('-t', '--token', default='TOKEN')
+def main(host, port, token):
 
     runner = TestRunner(repo_dir='..',
                         runner_file_name='test_looper.json')
     runner.setup()
     all_tests = runner.list()
-
-    from object_database import connect
-    db = connect('localhost', 8000, 'TOKEN')
+    db = connect(host, port, token)
     reporter = OdbReporter(db)
     [reporter.report_tests(test_list['results'].tests)
      for command, test_list in all_tests]
+
+if __name__ == '__main__':
+    main()
