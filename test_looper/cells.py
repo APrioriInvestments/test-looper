@@ -2,6 +2,7 @@ import time
 
 import object_database.web.cells as cells
 from object_database import connect, ServiceBase
+from object_database.web.cells.webgl_plot import Plot
 
 from .schema import test_looper_schema, TestNode
 
@@ -30,39 +31,63 @@ class TLService(ServiceBase):
         # subscribed to all the objects.
         cells.ensureSubscribedSchema(test_looper_schema)
 
-        slot = cells.Slot("dev")
-
-        return cells.SplitView(
-            [
-                (cells.Card(
-                    cells.Subscribed(lambda:
-                        cells.Dropdown(
-                            "Git branch: " + str(slot.get()),
-                            ["branch1", "branch2", "branch3"],
-                            lambda i: slot.set(i)
-                        )
-                                     )
-                ), 1),
-                (cells.Card(
-                    cells.Table(
-                            colFun=lambda: [
-                                'name', 'testsDefined', 'needsMoreWork'],
-                            rowFun=lambda: TestNode.lookupAll(),
-                            headerFun=lambda x: x,
-                            rendererFun=renderFun(),
-                            maxRowsPerPage=100,
-                            fillHeight=True
-                    )
-                ), 4)
-            ]
+        return cells.ResizablePanel(
+            selectionsCard(),
+            cells.ResizablePanel(
+                testResultsTable(),
+                plotsCard()
+            )
         )
 
 
 # helper functions
-def renderFun():
+
+### Reporting ###
+# I display test run resports #
+def testResultsTable():
+    return cells.Card(
+        cells.Table(
+            colFun=lambda: ['name', 'testsDefined', 'needsMoreWork'],
+            rowFun=lambda: TestNode.lookupAll(),
+            headerFun=lambda x: x,
+            rendererFun=testResultsTableRenderFun(),
+            maxRowsPerPage=100,
+            fillHeight=True
+            ),
+        header="Test reporting",
+        padding=5
+    )
+
+def testResultsTableRenderFun():
     return lambda n, col: cells.Subscribed(
         lambda:
             n.name if col == 'name' else
             n.testsDefined if col == 'testsDefined'
-        else "no"
+        else n.needsMoreWork)
+
+### Plots & Graphs ###
+def plotsCard():
+    return cells.Card(
+        cells.Panel(
+            cells.WebglPlot(lambda: Plot.create([1, 2, 3], [1, 2, 3]))
+        ),
+        header="Tests Overview",
+        padding=5
     )
+
+### Selections ###
+# Branches and Dropdowns
+def selectionsCard():
+    slot = cells.Slot("dev")
+    return cells.Card(
+        cells.Subscribed(
+            lambda: cells.Dropdown(
+                "Git branch: " + str(slot.get()),
+                ["branch1", "branch2", "branch3"],
+                lambda i: slot.set(i)
+            )
+        ),
+        header="Branch and commit selection",
+        padding=5
+    )
+
