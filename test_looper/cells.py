@@ -32,10 +32,10 @@ class TLService(ServiceBase):
         cells.ensureSubscribedSchema(test_looper_schema)
 
         return cells.ResizablePanel(
-            selectionsCard(),
+            selections_card(),
             cells.ResizablePanel(
-                testResultsTable(),
-                plotsCard()
+                test_results_table(),
+                plots_card()
             )
         )
 
@@ -44,21 +44,23 @@ class TLService(ServiceBase):
 
 ### Reporting ###
 # I display test run resports #
-def testResultsTable():
+def test_results_table():
     return cells.Card(
+        cells.Panel(
         cells.Table(
             colFun=lambda: ['name', 'testsDefined', 'needsMoreWork'],
             rowFun=lambda: TestNode.lookupAll(),
             headerFun=lambda x: x,
-            rendererFun=testResultsTableRenderFun(),
+            rendererFun=test_results_table_render_fun(),
             maxRowsPerPage=100,
             fillHeight=True
-            ),
+            )
+        ),
         header="Test reporting",
         padding=5
     )
 
-def testResultsTableRenderFun():
+def test_results_table_render_fun():
     return lambda n, col: cells.Subscribed(
         lambda:
             n.name if col == 'name' else
@@ -66,7 +68,7 @@ def testResultsTableRenderFun():
         else n.needsMoreWork)
 
 ### Plots & Graphs ###
-def plotsCard():
+def plots_card():
     return cells.Card(
         cells.Panel(
             cells.WebglPlot(lambda: Plot.create([1, 2, 3], [1, 2, 3]))
@@ -77,14 +79,24 @@ def plotsCard():
 
 ### Selections ###
 # Branches and Dropdowns
-def selectionsCard():
-    slot = cells.Slot("dev")
+def selections_card():
+    branch_slot = cells.Slot("dev")
+    commit_slot = cells.Slot("last commit")
     return cells.Card(
-        cells.Subscribed(
-            lambda: cells.Dropdown(
-                "Git branch: " + str(slot.get()),
-                ["branch1", "branch2", "branch3"],
-                lambda i: slot.set(i)
+        cells.Panel(
+            cells.Subscribed(
+                lambda: cells.Dropdown(
+                    "Git branch: " + str(branch_slot.get()),
+                    ["branch1", "branch2", "branch3"],
+                    lambda i: branch_slot.set(i)
+                )
+            ) +
+            cells.Subscribed(
+                lambda: cells.Dropdown(
+                    "Git commit: " + str(commit_slot.get()),
+                    ["commit1", "commit2", "commit3"],
+                    lambda i: commit_slot.set(i)
+                )
             )
         ),
         header="Branch and commit selection",
