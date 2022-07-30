@@ -31,11 +31,13 @@ class TLService(ServiceBase):
         # subscribed to all the objects.
         cells.ensureSubscribedSchema(test_looper_schema)
 
-        return cells.ResizablePanel(
-            selections_card(),
+        return cells.VCenter(
             cells.ResizablePanel(
-                test_results_table(),
-                plots_card()
+                cells.FillSpace(selections_card(), horizontal="center", vertical="top"),
+                cells.ResizablePanel(
+                    cells.FillSpace(test_results_table(), horizontal="center", vertical="top"),
+                    cells.FillSpace(plots_card(), horizontal="center", vertical="top"),
+                )
             )
         )
 
@@ -46,7 +48,7 @@ class TLService(ServiceBase):
 # I display test run resports #
 def test_results_table():
     return cells.Card(
-        cells.Panel(
+        cells.Highlighted(
         cells.Table(
             colFun=lambda: ['name', 'testsDefined', 'needsMoreWork'],
             rowFun=lambda: TestNode.lookupAll(),
@@ -54,7 +56,7 @@ def test_results_table():
             rendererFun=test_results_table_render_fun(),
             maxRowsPerPage=100,
             fillHeight=True
-            )
+            ), color="lightblue"
         ),
         header="Test reporting",
         padding=5
@@ -70,8 +72,9 @@ def test_results_table_render_fun():
 ### Plots & Graphs ###
 def plots_card():
     return cells.Card(
-        cells.Panel(
-            cells.WebglPlot(lambda: Plot.create([1, 2, 3], [1, 2, 3]))
+        cells.Highlighted(
+            cells.WebglPlot(lambda: Plot.create([1, 2, 3], [1, 2, 3])),
+            color="lightblue"
         ),
         header="Tests Overview",
         padding=5
@@ -83,7 +86,7 @@ def selections_card():
     branch_slot = cells.Slot("dev")
     commit_slot = cells.Slot("last commit")
     return cells.Card(
-        cells.Panel(
+        cells.Highlighted(
             cells.Subscribed(
                 lambda: cells.Dropdown(
                     "Git branch: " + str(branch_slot.get()),
@@ -97,7 +100,7 @@ def selections_card():
                     ["commit1", "commit2", "commit3"],
                     lambda i: commit_slot.set(i)
                 )
-            )
+            ), color="lightblue"
         ),
         header="Branch and commit selection",
         padding=5
