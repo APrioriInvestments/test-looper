@@ -1,12 +1,15 @@
 # The main service class that will run this TestLooper installation
 import contextlib
-from typing import Union, Dict
+import os
+from typing import Dict, Optional, Union
 from urllib.parse import urlparse
+import uuid
 
 from object_database.database_connection import DatabaseConnection
+from test_looper.git import GIT
+from test_looper.repo_schema import Repository, RepoConfig, RepoClone
 from test_looper.schema import test_looper_schema
 from test_looper.service_schema import ArtifactStorageConfig, Config
-from test_looper.repo_schema import Repository, RepoConfig
 
 
 class LooperService:
@@ -56,14 +59,13 @@ class LooperService:
                 config.repo_url, config.temp_url, config.artifact_store, db
             )
 
-    @contextlib.contextmanager
     def add_repo(
         self,
         name: str,
         config: Union[str, RepoConfig],
         default_scheme="ssh",
         private_key=bytes,
-    ):
+    ) -> RepoConfig:
         """
         Parameters
         ----------
@@ -85,16 +87,72 @@ class LooperService:
             config = parse_repo_url(config, default_scheme, private_key)
         with self.db.transaction():
             repo = Repository(name=name, config=config)
-            yield repo
+            Repository.lookupOne(name=name)
+            return repo.config
 
-    def get_repo_config(self, name: str) -> RepoConfig:
+    def get_repo_config(self, name: str) -> Optional[RepoConfig]:
         with self.db.view():
             repo = Repository.lookupOne(name=name)
-            return repo.config
+            if repo is not None:
+                return repo.config
 
     def get_all_repos(self) -> Dict[str, RepoConfig]:
         with self.db.view():
             return {repo.name: repo.config for repo in Repository.lookupAll()}
+
+    def clone_repo(
+        self, name: str, clone_name: str = None
+    ) -> (str, RepoConfig):
+        """
+        Clone a registered repo with the given name to this service's
+        repo storage. A RepoClone link will be added between the remote
+        and local clone
+
+        Parameters
+        ----------
+        name: str
+            The odb name of the repo to be cloned
+        clone_name: str, default None
+            The odb name of the clone. If not provided, then it will
+            be <name>-clone-<uuid>
+
+        Returns
+        -------
+        (clone_name, clone_config): (str, RepoConfig)
+        """
+        if clone_name is None:
+            clone_name = f"{name}-clone-{str(uuid.uuid4())}"
+        clone_path = os.path.join(self.repo_url, clone_name)
+        to_clone = self.get_repo_config(name)
+        if to_clone is None:
+            raise KeyError(f"Repo {name} is not registered in odb")
+        _create_clone(to_clone, clone_path)
+        with self.db.transaction():
+            clone_conf = RepoConfig.Local(path=clone_path)
+            clone_repo = Repository(name=clone_name, config=clone_conf)
+            orig_repo = Repository.lookupOne(name=name)
+            RepoClone(remote=orig_repo, clone=clone_repo)
+            return clone_name, clone_repo.config
+
+    def get_remote(self, clone_name: str) -> (str, RepoConfig):
+        """
+        Get the remote repo that originated the local repo with the given
+        clone_name
+        """
+        with self.db.view():
+            clone = Repository.lookupOne(name=clone_name)
+            remote = RepoClone.lookupOne(clone=clone).remote
+            return remote.name, remote.config
+
+
+_GIT = GIT()
+
+
+def _create_clone(conf: RepoConfig, clone_path):
+    if isinstance(conf, RepoConfig.Https):
+        _GIT.clone(conf.url, clone_path)
+    else:
+        raise NotImplementedError("Only public https cloning supported")
 
 
 def parse_repo_url(

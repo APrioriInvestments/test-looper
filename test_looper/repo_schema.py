@@ -51,3 +51,9 @@ RepoConfig = Alternative(
 class Repository:
     config = RepoConfig
     name = Indexed(str)
+
+
+@test_looper_schema.define
+class RepoClone:
+    remote = Indexed(Repository)
+    clone = Indexed(Repository)
