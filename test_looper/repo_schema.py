@@ -1,5 +1,5 @@
 # Define the schema related to repos, branchs, and commits
-from typed_python import Alternative
+from typed_python import Alternative, NamedTuple
 from object_database import Indexed
 
 
@@ -57,3 +57,57 @@ class Repository:
 class RepoClone:
     remote = Indexed(Repository)
     clone = Indexed(Repository)
+
+
+@test_looper_schema.define
+class Commit:
+    repo = Indexed(Repository)
+    summary = str
+    author_name = Indexed(str)
+    author_email = str
+    sha = Indexed(str)
+
+    # allows us to ask which commits need us to parse their tests.
+    is_parsed = Indexed(bool)
+
+    @property
+    def parents(self):
+        """Return a list of parent commits"""
+        return [c.parent for c in CommitParent.lookupAll(child=self)]
+
+    @property
+    def children(self):
+        return [c.child for c in CommitParent.lookupAll(parent=self)]
+
+    def setParents(self, parents):
+        """Utility function to manage CommitParent objects"""
+        curParents = self.parents
+        for p in curParents:
+            if p not in parents:
+                CommitParent.lookupOne(parentAndChild=(p, self)).delete()
+
+        for p in parents:
+            if p not in curParents:
+                CommitParent(parent=p, child=self)
+
+
+@test_looper_schema.define
+class CommitParent:
+    """Model the parent-child relationshp between two commits"""
+
+    parent = Indexed(Commit)
+    child = Indexed(Commit)
+
+    parentAndChild = Index("parent", "child")
+
+
+@test_looper_schema.define
+class Branch:
+    repo = Indexed(Repo)
+    name = str
+
+    repoAndName = Index("repo", "name")
+    top_commit = Commit
+
+    # allows us to ask "what are the prioritized branches"
+    is_prioritized = Indexed(bool)

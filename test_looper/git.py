@@ -44,10 +44,5 @@ class GIT:
         """
         return os.system(f"git clone {repo} {directory}")
 
-    def list_commits(self, repo: str, rev: str = None):
-        """
-        Return a generator of GitPython's Commit objects for the given repo.
-        If specified, the `rev` str will be used to constrain the commits
-        listed to a range (e.g., "<revA>...<revB>")
-        """
-        return Repo(repo).iter_commits(rev=rev)
+    def get_commit(self, repo, ref):
+        return Repo(repo).commit(ref)

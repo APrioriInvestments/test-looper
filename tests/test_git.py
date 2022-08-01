@@ -35,15 +35,3 @@ class TestGit:
     @classmethod
     def teardown_class(cls):
         return
-
-
-def test_list_commits(tmp_path):
-    test_looper = "https://github.com/aprioriinvestments/test-looper"
-    git = GIT()
-    git.clone(test_looper, str(tmp_path))
-    commits = list(git.list_commits(str(tmp_path)))
-    assert len(commits) > 0
-    for c in commits:
-        for prop in [c.hexsha, c.author.name, c.author.email, c.summary]:
-            assert prop is not None
-            assert len(prop) > 0
