@@ -5,6 +5,9 @@ import os
 import sys
 import requests
 
+# GitPython
+from git import Repo
+
 
 class GIT:
     def __init__(self, user=None, token=None, require_auth=False):
@@ -21,9 +24,9 @@ class GIT:
         self.session.auth = (self.user, self.token)
         # check the credentials are valid
         response = self.session.get(
-            'https://api.github.com/users/%s' % self.user
+            "https://api.github.com/users/%s" % self.user
         )
-        if response.headers['X-RateLimit-Limit'] == '5000':
+        if response.headers["X-RateLimit-Limit"] == "5000":
             self.authenticated = True
         elif self.require_auth:
             sys.exit("invalid github credentials")
@@ -37,6 +40,14 @@ class GIT:
         repo: str
             local path or url for repo
         directory: str
-            path to target directory 
+            path to target directory
         """
-        return os.system(f'git clone {repo} {directory}')
+        return os.system(f"git clone {repo} {directory}")
+
+    def list_commits(self, repo: str, rev: str = None):
+        """
+        Return a generator of GitPython's Commit objects for the given repo.
+        If specified, the `rev` str will be used to constrain the commits
+        listed to a range (e.g., "<revA>...<revB>")
+        """
+        return Repo(repo).iter_commits(rev=rev)

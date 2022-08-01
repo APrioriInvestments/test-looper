@@ -1,7 +1,7 @@
 import json
 import os
 
-from test_looper.git import GIT
+from test_looper.git import GIT, Repo
 
 
 class TestGit:
@@ -17,8 +17,7 @@ class TestGit:
         if os.path.isfile(cred_file):
             print("GIT credentials found")
             credentials = json.load(open(cred_file))
-            cls.GIT = GIT(user=credentials["user"],
-                          token=credentials["token"])
+            cls.GIT = GIT(user=credentials["user"], token=credentials["token"])
             cls.GIT.authenticate()
             if cls.GIT.authenticated:
                 print("authenticated")
@@ -36,3 +35,15 @@ class TestGit:
     @classmethod
     def teardown_class(cls):
         return
+
+
+def test_list_commits(tmp_path):
+    test_looper = "https://github.com/aprioriinvestments/test-looper"
+    git = GIT()
+    git.clone(test_looper, str(tmp_path))
+    commits = list(git.list_commits(str(tmp_path)))
+    assert len(commits) > 0
+    for c in commits:
+        for prop in [c.hexsha, c.author.name, c.author.email, c.summary]:
+            assert prop is not None
+            assert len(prop) > 0
