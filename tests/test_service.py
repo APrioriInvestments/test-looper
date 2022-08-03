@@ -52,10 +52,7 @@ def test_add_repo(odb_conn: DatabaseConnection, tl_config):
         "odb": "https://github.com/aprioriinvestments/object_database",
     }
     for name, url in repos.items():
-        with service.add_repo(name, url) as repo:
-            assert repo.name == name
-            assert repo.config.url == url
-
+        service.add_repo(name, url)
     all_repos = service.get_all_repos()
     for name, config in all_repos.items():
         assert repos[name] == config.url
@@ -64,6 +61,21 @@ def test_add_repo(odb_conn: DatabaseConnection, tl_config):
         config = service.get_repo_config(name)
         assert isinstance(config, RepoConfig.Https)
         assert config.url == url
+
+
+def test_clone_repo(odb_conn: DatabaseConnection, tl_config):
+    service = LooperService.from_odb(odb_conn)
+    name = "test-looper"
+    config = service.add_repo(
+        name, "https://github.com/aprioriinvestments/test-looper"
+    )
+    clone_name, clone_config = service.clone_repo(name, clone_name="clone")
+    assert clone_name == "clone"
+    assert isinstance(clone_config, RepoConfig.Local)
+    assert clone_config.path == f"{service.repo_url}/clone"
+    remote_name, remote_config = service.get_remote(clone_name)
+    assert remote_name == name
+    assert remote_config == config
 
 
 def test_parse_repo():
