@@ -144,3 +144,7 @@ dmypy.json
 *.swp
 *.swo
 *undo-tree*
+
+nohup.out
+
+**/*~
