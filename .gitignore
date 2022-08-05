@@ -141,8 +141,7 @@ dmypy.json
 .idea/
 
 # vim
-*.swp
-*.swo
+*.sw*
 *undo-tree*
 
 nohup.out
