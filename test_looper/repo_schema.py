@@ -41,7 +41,7 @@ RepoConfig = Alternative(
     "RepoConfig",
     Ssh=dict(url=str, private_key=bytes),
     Https=dict(url=str),
-    Local=dict(path=str),
+    Local=dict(path=str),  # TODO identify the host at this ID?
     S3=dict(url=str),
     FromService=dict(repo_name=str, service=GitService),
 )
@@ -53,10 +53,12 @@ class Repository:
     name = Indexed(str)
 
 
+# TODO do we actually want to manage local clones in ODB?
 @test_looper_schema.define
 class RepoClone:
     remote = Indexed(Repository)
     clone = Indexed(Repository)
+    # TODO add a machine id here since clones are local?
 
 
 @test_looper_schema.define

@@ -187,7 +187,12 @@ def parse_repo_url(
     raise NotImplementedError(f"No recognized scheme for {url}")
 
 
-def parse_branch(repo: Repository, branch_name: str):
+def parse_branch(repo: Repository, branch_name: str) -> Branch:
+    """
+    Go through the designated branch and register everything as necessary
+    in odb. This includes 1) the branch itself, 2) commits and parents
+    and 3) commit parent relationship
+    """
     b = GIT().get_branch(repo.path, branch_name)
     top_commit = parse_commits(repo, b.commit)
     odb_b = Branch.lookupOne(repoAndName(repo, branch_name))
@@ -200,9 +205,10 @@ def parse_branch(repo: Repository, branch_name: str):
         )
     else:
         odb_b.top_commit = top_commit
+    return odb_b
 
 
-def parse_commits(repo: Repository, commit: "git.Commit"):
+def parse_commits(repo: Repository, commit: "git.Commit") -> Commit:
     """
     Start from the commit sha given in `head` and keep traversing commit
     parents until all parents are already in odb or no more parents exist.
@@ -213,6 +219,11 @@ def parse_commits(repo: Repository, commit: "git.Commit"):
         The local repo whose active branch we want to parse commits from
     head: str
         The commit SHA where we want to start from (usually tip of a branch)
+
+    Returns
+    -------
+    c: Commit
+        The top commit as an ODB object
     """
     top_commit = make_commit(repo, commit)
     to_process = [(top_commit, commit.parents)]
