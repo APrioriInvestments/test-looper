@@ -11,6 +11,7 @@ test_looper_schema = Schema("test_looper")
 GitService = Alternative(
     "GitService",
     Github=dict(
+        account_name=str,  # for display
         oauth_key=str,
         oauth_secret=str,
         webhook_secret=str,

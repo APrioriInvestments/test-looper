@@ -4,9 +4,15 @@ from urllib.parse import urlparse
 from object_database.database_connection import DatabaseConnection
 import pytest
 
-from test_looper.service import LooperService, parse_repo_url
+from test_looper.git import GIT, Repo
+from test_looper.service import (
+    LooperService,
+    parse_repo_url,
+    parse_commits,
+    parse_branch,
+)
 from test_looper.service_schema import Config, ArtifactStorageConfig
-from test_looper.repo_schema import Repository, RepoConfig
+from test_looper.repo_schema import Repository, RepoConfig, Commit
 from conftest import odb_conn
 
 
@@ -89,6 +95,47 @@ def test_parse_repo():
     ]
     for i, (klass, conf_str, kwargs) in enumerate(alternatives):
         _check_str_repo_config(klass, f"tl-{i}", conf_str, **kwargs)
+
+
+def test_parse_commit(odb_conn: DatabaseConnection, tl_repo: Repo):
+    head = tl_repo.head.commit
+    conf = RepoConfig.Local(tl_repo.working_dir)
+    with odb_conn.transaction():
+        repo = Repository(config=conf, name="test-looper-clone")
+        parse_commits(repo, head)
+        _check_tree(head, Commit.lookupOne(sha=head.hexsha))
+
+
+def test_parse_branch(odb_conn: DatabaseConnection, tl_repo: Repo):
+    conf = RepoConfig.Local(tl_repo.working_dir)
+    for branch in tl_repo.heads:
+        with odb_conn.transaction():
+            repo = Repository(config=conf, name="test-looper-clone")
+            parse_branch(repo, branch.name)
+            _check_tree(
+                branch.commit, Commit.lookupOne(sha=branch.commit.hexsha)
+            )
+
+
+def _check_tree(expected, odb_results):
+    assert expected.hexsha == odb_results.sha
+    expected_parents = expected.parents
+    odb_parents = odb_results.parents
+    assert len(expected_parents) == len(odb_parents)
+    for git, odb in zip(
+        sorted(expected_parents, key=lambda x: x.hexsha),
+        sorted(odb_parents, key=lambda x: x.sha),
+    ):
+        _check_tree(git, odb)
+
+
+@pytest.fixture(scope="module")
+def tl_repo(tmp_path_factory):
+    tmp_path = tmp_path_factory.mktemp("repo")
+    repo = "https://github.com/aprioriinvestments/test-looper"
+    clone_to = str(tmp_path / "test_looper")
+    GIT().clone(repo, clone_to, all_branches=True)
+    return Repo(clone_to)
 
 
 def _check_str_repo_config(klass, name, url, **kwargs):

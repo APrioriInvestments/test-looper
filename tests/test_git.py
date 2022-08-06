@@ -1,7 +1,8 @@
 import json
 import os
 
-from test_looper.git import GIT, Repo
+from test_looper.git import GIT
+from test_looper.git import Repo as GitPythonRepo
 
 
 class TestGit:

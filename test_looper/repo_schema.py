@@ -1,6 +1,6 @@
 # Define the schema related to repos, branchs, and commits
 from typed_python import Alternative, NamedTuple
-from object_database import Indexed
+from object_database import Indexed, Index
 
 
 from test_looper import test_looper_schema
@@ -105,7 +105,7 @@ class CommitParent:
 
 @test_looper_schema.define
 class Branch:
-    repo = Indexed(Repo)
+    repo = Indexed(Repository)
     name = str
 
     repoAndName = Index("repo", "name")

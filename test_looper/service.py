@@ -193,9 +193,9 @@ def parse_branch(repo: Repository, branch_name: str) -> Branch:
     in odb. This includes 1) the branch itself, 2) commits and parents
     and 3) commit parent relationship
     """
-    b = GIT().get_branch(repo.path, branch_name)
+    b = GIT().get_branch(repo.config.path, branch_name)
     top_commit = parse_commits(repo, b.commit)
-    odb_b = Branch.lookupOne(repoAndName(repo, branch_name))
+    odb_b = Branch.lookupAny(repoAndName=(repo, branch_name))
     if odb_b is None:
         Branch(
             repo=repo,
@@ -230,20 +230,21 @@ def parse_commits(repo: Repository, commit: "git.Commit") -> Commit:
     while len(to_process) > 0:
         odb_c, parents = to_process.pop()
         for p in parents:
-            odb_p = Commit.lookupOne(sha=p.hexsha)
+            odb_p = Commit.lookupAny(sha=p.hexsha)
             if odb_p is None:
                 odb_p = make_commit(repo, p)
                 if len(p.parents) > 0:
                     to_process.append((odb_p, p.parents))
-            rel = CommitParent.lookupOne(parentAndChild=(odb_p, odb_c))
+            rel = CommitParent.lookupAny(parentAndChild=(odb_p, odb_c))
             if rel is None:
-                CommitParent(odb_p, odb_c)
+                CommitParent(parent=odb_p, child=odb_c)
     return top_commit
 
 
 def make_commit(repo, c):
     return Commit(
         repo=repo,
+        sha=c.hexsha,
         summary=c.summary,
         author_name=c.author.name,
         author_email=c.author.email,

@@ -2,6 +2,7 @@
 # with GIT, github and related utilities
 
 import os
+import subprocess
 import sys
 import requests
 
@@ -33,7 +34,7 @@ class GIT:
         else:
             self.authenticated = False
 
-    def clone(self, repo, directory):
+    def clone(self, repo, directory, all_branches=False):
         """
         Parameters:
         ----------
@@ -41,8 +42,26 @@ class GIT:
             local path or url for repo
         directory: str
             path to target directory
+        all_branches: bool, default False
+            if True then clone with all remote branches
         """
-        return os.system(f"git clone {repo} {directory}")
+        if not all_branches:
+            return os.system(f"git clone {repo} {directory}")
+        else:
+            os.makedirs(directory, exist_ok=True)
+            cmd = (
+                f"cd {directory} && "
+                f"git clone --mirror {repo} .git && "
+                "git config --bool core.bare false && "
+                "git reset --hard"
+            )
+            return subprocess.check_output(cmd, shell=True)
 
     def get_commit(self, repo, ref):
         return Repo(repo).commit(ref)
+
+    def get_branch(self, repo, ref):
+        for h in Repo(repo).heads:
+            if h.name == ref:
+                return h
+        raise ValueError(f"{ref} branch was not found in {repo}")
