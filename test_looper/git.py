@@ -65,3 +65,9 @@ class GIT:
             if h.name == ref:
                 return h
         raise ValueError(f"{ref} branch was not found in {repo}")
+
+    def list_branches(self, repo):
+        return Repo(repo).heads
+
+    def get_head(self, repo):
+        return Repo(repo).head

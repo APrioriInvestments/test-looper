@@ -12,7 +12,7 @@ from test_looper.service import (
     parse_branch,
 )
 from test_looper.service_schema import Config, ArtifactStorageConfig
-from test_looper.repo_schema import Repository, RepoConfig, Commit
+from test_looper.repo_schema import Repository, RepoConfig, Commit, Branch
 from conftest import odb_conn
 
 
@@ -101,20 +101,36 @@ def test_parse_commit(odb_conn: DatabaseConnection, tl_repo: Repo):
     head = tl_repo.head.commit
     conf = RepoConfig.Local(tl_repo.working_dir)
     with odb_conn.transaction():
-        repo = Repository(config=conf, name="test-looper-clone")
+        repo = Repository(config=conf, name="test_parse_commit")
         parse_commits(repo, head)
         _check_tree(head, Commit.lookupOne(sha=head.hexsha))
 
 
 def test_parse_branch(odb_conn: DatabaseConnection, tl_repo: Repo):
     conf = RepoConfig.Local(tl_repo.working_dir)
-    for branch in tl_repo.heads:
-        with odb_conn.transaction():
-            repo = Repository(config=conf, name="test-looper-clone")
-            parse_branch(repo, branch.name)
+    with odb_conn.transaction():
+        repo = Repository(config=conf, name="test_parse_branch")
+        for branch in tl_repo.heads:
+            parse_branch(repo, branch)
             _check_tree(
                 branch.commit, Commit.lookupOne(sha=branch.commit.hexsha)
             )
+
+
+def test_scan_repo(odb_conn: DatabaseConnection):
+    service = LooperService.from_odb(odb_conn)
+    service.add_repo(
+        "test-looper", "https://github.com/aprioriinvestments/test-looper"
+    )
+    (name, clone_conf) = service.clone_repo(
+        "test-looper", clone_name="test_scan_repo"
+    )
+    service.scan_repo("test_scan_repo", branch="*")
+    with service.db.view():
+        repo = Repository.lookupOne(name=name)
+        for b in GIT().list_branches(clone_conf.path):
+            odb_branch = Branch.lookupOne(repoAndName=(repo, b.name))
+            assert b.commit.hexsha == odb_branch.top_commit.sha
 
 
 def _check_tree(expected, odb_results):

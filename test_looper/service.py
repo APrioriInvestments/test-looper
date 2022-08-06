@@ -93,13 +93,16 @@ class LooperService:
         if isinstance(config, str):
             config = parse_repo_url(config, default_scheme, private_key)
         with self.db.transaction():
-            repo = Repository(name=name, config=config)
-            Repository.lookupOne(name=name)
+            repo = Repository.lookupAny(name=name)
+            if repo:
+                assert repo.config == config
+            else:
+                repo = Repository(name=name, config=config)
             return repo.config
 
     def get_repo_config(self, name: str) -> Optional[RepoConfig]:
         with self.db.view():
-            repo = Repository.lookupOne(name=name)
+            repo = Repository.lookupAny(name=name)
             if repo is not None:
                 return repo.config
 
@@ -129,6 +132,11 @@ class LooperService:
         """
         if clone_name is None:
             clone_name = f"{name}-clone-{str(uuid.uuid4())}"
+        with self.db.view():
+            clone_repo = Repository.lookupAny(name=clone_name)
+            if clone_repo is not None:
+                return clone_repo.name, clone_repo.config
+
         clone_path = os.path.join(self.repo_url, clone_name)
         to_clone = self.get_repo_config(name)
         if to_clone is None:
@@ -151,13 +159,39 @@ class LooperService:
             remote = RepoClone.lookupOne(clone=clone).remote
             return remote.name, remote.config
 
-    def scan_repo(self, repo_name: str):
-        pass
+    def scan_repo(self, repo_name: str, branch: Optional[str]):
+        """
+        Scan the given repo / branch and add Branches/Commits etc to odb.
+
+        Parameters
+        ----------
+        repo_name: str
+            Name of the local odb repository to scan
+        branch: str or list-like of str, default None
+            If None then just the default branch is scanned.
+            If it's a str then assume it's branch name
+            If the string is '*' then scan all branches
+        """
+        with self.db.transaction():
+            repo = Repository.lookupOne(name=repo_name)
+            if not isinstance(repo.config, RepoConfig.Local):
+                repo = RepoClone.lookupOne(remote=repo).clone
+            g = GIT()
+            if branch is None:
+                to_scan = [g.get_head(repo.config.path)]
+            elif branch == "*":
+                to_scan = g.list_branches(repo.config.path)
+            elif isinstance(branch, str):
+                to_scan = [g.get_branch(branch)]
+            elif isinstance(branch, list):
+                to_scan = [g.get_branch(b) for b in branch]
+            for b in to_scan:
+                parse_branch(repo, b)
 
 
 def _create_clone(conf: RepoConfig, clone_path):
     if isinstance(conf, RepoConfig.Https):
-        GIT().clone(conf.url, clone_path)
+        GIT().clone(conf.url, clone_path, all_branches=True)
     else:
         raise NotImplementedError("Only public https cloning supported")
 
@@ -187,19 +221,18 @@ def parse_repo_url(
     raise NotImplementedError(f"No recognized scheme for {url}")
 
 
-def parse_branch(repo: Repository, branch_name: str) -> Branch:
+def parse_branch(repo: Repository, branch: "git.Head") -> Branch:
     """
     Go through the designated branch and register everything as necessary
     in odb. This includes 1) the branch itself, 2) commits and parents
     and 3) commit parent relationship
     """
-    b = GIT().get_branch(repo.config.path, branch_name)
-    top_commit = parse_commits(repo, b.commit)
-    odb_b = Branch.lookupAny(repoAndName=(repo, branch_name))
+    top_commit = parse_commits(repo, branch.commit)
+    odb_b = Branch.lookupAny(repoAndName=(repo, branch.name))
     if odb_b is None:
         Branch(
             repo=repo,
-            name=branch_name,
+            name=branch.name,
             top_commit=top_commit,
             is_prioritized=False,
         )
