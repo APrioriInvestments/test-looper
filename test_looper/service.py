@@ -63,7 +63,7 @@ class LooperService:
         with db.view():
             config: Config = Config.lookupUnique()
             return LooperService(
-                config.repo_url, config.temp_url, config.artifact_store, db
+                db, config.repo_url, config.temp_url, config.artifact_store
             )
 
     def add_repo(
@@ -218,6 +218,8 @@ def parse_repo_url(
         return RepoConfig.Local(path=path)
     if scheme == "s3":
         return RepoConfig.S3(url=url)
+    if scheme == "file":
+        return RepoConfig.Local(path=rs.path)
     raise NotImplementedError(f"No recognized scheme for {url}")
 
 
