@@ -1,5 +1,6 @@
 # The main service class that will run this TestLooper installation
 import os
+import click
 from typing import Dict, Optional, Union
 from urllib.parse import urlparse
 import uuid
@@ -115,6 +116,7 @@ class LooperService:
         """
         Clone a registered repo with the given name to this service's
         repo storage. A RepoClone link will be added between the remote
+        repo storage. A RepoClone link will be added between the remote
         and local clone
 
         Parameters
@@ -212,7 +214,6 @@ def parse_repo_url(
         return RepoConfig.Https(url=url)
     if scheme == "ssh":
         return RepoConfig.Ssh(url=url, private_key=private_key)
-    if scheme == "file":
         path = rs.path if not rs.netloc else f"/{rs.netloc}{rs.path}"
         return RepoConfig.Local(path=path)
     if scheme == "s3":
@@ -282,3 +283,22 @@ def make_commit(repo, c):
         author_email=c.author.email,
         is_parsed=False,
     )
+
+
+@click.command()
+@click.option('-h', '--host', default='localhost')
+@click.option('-p', '--port', default='8000')
+@click.option('-t', '--token', default='TOKEN')
+def main(host, port, token):
+    odb = connect(host, port, token)
+    service = LooperService(odb)
+    service.add_repo(
+        "test-looper", "https://github.com//aprioriinvestments/test-looper"
+    )
+    service.clone_repo("test-looper", "my-test-looper-clone")
+    service.scan_repo("my-test-looper-clone", branch="*")
+
+
+if __name__ == '__main__':
+    from object_database import connect
+    main()

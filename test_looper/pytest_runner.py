@@ -110,8 +110,11 @@ def parse_collector(data):
     for item in data['collectors']:
         for test_item in item['result']:
             if test_item['type'] == 'Function':
-                module_name, class_name, test_name = test_item[
-                    'nodeid'].split("::")
+                nodeid = test_item['nodeid'].split("::")
+                item_dict = dict(zip(range(len(nodeid)), nodeid))
+                module_name = item_dict.get(0, "")
+                class_name = item_dict.get(1, "")
+                test_name = item_dict.get(2, "")
                 try:
                     module_dict = tests_dict[module_name]
                 except KeyError:

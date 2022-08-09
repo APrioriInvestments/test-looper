@@ -140,6 +140,7 @@ def selections_card():
 
 def info_panel():
     is_open = cells.Slot(False)
+    commit_slot = cells.Slot({"timestamp": "today", "user": "git user"})
 
     return cells.Subscribed(
         lambda: cells.Button(
@@ -147,7 +148,11 @@ def info_panel():
             lambda: is_open.set(not is_open.get()),
         ) +
         cells.CollapsiblePanel(
-            panel=cells.Text("more info about the repo"),
+            panel=cells.Subscribed(
+                lambda:
+                    cells.Text(str(commit_slot.get()["timestamp"])) +
+                    cells.Text(str(commit_slot.get()["user"]))
+            ),
             content=cells.Text(""),
             isExpanded=lambda: is_open.get()
         )
