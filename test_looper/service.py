@@ -1,12 +1,11 @@
 # The main service class that will run this TestLooper installation
-import contextlib
 import os
 from typing import Dict, Optional, Union
 from urllib.parse import urlparse
 import uuid
 
 from object_database.database_connection import DatabaseConnection
-from test_looper.git import GIT
+from test_looper.tl_git import GIT
 from test_looper.repo_schema import (
     Branch,
     Commit,
@@ -26,10 +25,10 @@ class LooperService:
 
     def __init__(
         self,
-        repo_url: str,
-        temp_url: str,
-        artifact_store: ArtifactStorageConfig,
         db: DatabaseConnection,
+        repo_url: str = None,
+        temp_url: str = None,
+        artifact_store: ArtifactStorageConfig = ArtifactStorageConfig,
     ):
         """
         Parameters

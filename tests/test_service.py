@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 from object_database.database_connection import DatabaseConnection
 import pytest
 
-from test_looper.git import GIT, Repo
+from test_looper.tl_git import GIT, Repo
 from test_looper.service import (
     LooperService,
     parse_repo_url,
