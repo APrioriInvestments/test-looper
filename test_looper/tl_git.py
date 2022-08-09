@@ -71,3 +71,19 @@ class GIT:
 
     def get_head(self, repo):
         return Repo(repo).head
+
+    def read_file(self, repo, file_path, ref) -> str:
+        """Get a file from repo at a given reference"""
+        cmd = f'cd {repo} && git show {ref}:{file_path} | cat'
+        with subprocess.Popen(cmd,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE,
+                              shell=True) as proc:
+            stderr = proc.stderr.read().decode('utf-8').strip()
+            stdout = proc.stdout.read().decode('utf-8').strip()
+            err = f"fatal: path '{file_path}' does not exist in '{ref}'"
+            if stderr == err:
+                raise FileNotFoundError(stderr)
+            if len(stdout) == 0:
+                raise ValueError("test_looper.json was empty")
+            return stdout
