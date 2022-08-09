@@ -7,6 +7,32 @@ from object_database.web.cells.webgl_plot import Plot
 from .schema import test_looper_schema, TestNode
 
 
+# globals
+# for now we let all the slots be global TODO?
+# TODO: much of this will be set by odb
+repo_slot = cells.Slot(
+    {
+        "name": "test-looper",
+        "url": "https://github.com/APrioriInvestments/test-looper"
+    }
+)
+branch_slot = cells.Slot("none")
+available_branches_slot = cells.Slot(
+    ["{}_branch_{}".format("test-looper", i) for i in range(10)]
+)
+available_commits_slot = cells.Slot(
+    ["commit_{}".format(i) for i in range(10)]
+)
+commit_slot = cells.Slot(
+    {
+        "summary": "",
+        "author_name": "",
+        "author_email": "",
+        "sha": ""
+     }
+)
+
+
 class TLService(ServiceBase):
     def initialize(self):
         self.db.subscribeToSchema(test_looper_schema)
@@ -92,15 +118,11 @@ def plots_card():
 # Selections ###
 # Branches and Dropdowns
 def selections_card():
-    repo_slot = cells.Slot("dev")
-    branch_slot = cells.Slot("dev")
-    commit_slot = cells.Slot("last commit")
-    default_repo_url = "https://github.com/APrioriInvestments/test-looper"
     return cells.Highlighted(
         cells.Card(
             cells.SingleLineTextBox(
-                default_repo_url,
-                onEnter=lambda text: repo_slot.set(text)
+                repo_slot.get()["url"],
+                onEnter=lambda text: repo_slot.set({"url": text})
             ) +
             cells.HorizontalSequence(
                 [
@@ -109,17 +131,17 @@ def selections_card():
                             cells.Subscribed(
                                 lambda: cells.Dropdown(
                                     "Git branch: " + str(branch_slot.get()),
-                                    ["branch1", "branch2", "branch3"],
+                                    available_branches_slot.get(),
                                     lambda i: branch_slot.set(i)
                                 )
                             ) +
                             cells.FillSpace(
                                 cells.Subscribed(
                                     lambda: cells.Dropdown(
-                                        "Git commit: " + str(commit_slot.get()
-                                                             ),
-                                        ["commit1", "commit2", "commit3"],
-                                        lambda i: commit_slot.set(i)
+                                        "Git commit: " + str(
+                                            commit_slot.get()['sha']),
+                                        available_commits_slot.get(),
+                                        lambda i:_commit_setter(i)
                                     )
                                 )
                             )
@@ -139,21 +161,27 @@ def selections_card():
 
 
 def info_panel():
-    is_open = cells.Slot(False)
-    commit_slot = cells.Slot({"timestamp": "today", "user": "git user"})
-
     return cells.Subscribed(
-        lambda: cells.Button(
-            "Close" if is_open.get() else "More info",
-            lambda: is_open.set(not is_open.get()),
-        ) +
-        cells.CollapsiblePanel(
-            panel=cells.Subscribed(
-                lambda:
-                    cells.Text(str(commit_slot.get()["timestamp"])) +
-                    cells.Text(str(commit_slot.get()["user"]))
-            ),
-            content=cells.Text(""),
-            isExpanded=lambda: is_open.get()
-        )
+            lambda: cells.FillSpace(
+                cells.Text(
+                    "summary:\n" + str(commit_slot.get()["summary"])
+                ) +
+                cells.FillSpace(
+                    cells.Text(
+                        "author: " + str(commit_slot.get()["author_name"])
+                    )
+                )
+            )
     )
+
+
+# random helper function: TODO remove
+# this is all for testing, will happen in ODB
+def _commit_setter(i):
+    data = {
+        "summary": "summary for commit {}".format(i),
+        "author_name": "author for commit {}".format(i),
+        "author_email": "email for commit {}".format(i),
+        "sha": "sha_for_commit_{}".format(i)
+    }
+    commit_slot.set(data)
