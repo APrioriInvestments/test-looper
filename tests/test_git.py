@@ -1,6 +1,8 @@
 import json
 import os
 
+import pytest
+
 from test_looper.tl_git import GIT
 from test_looper.tl_git import Repo as GitPythonRepo
 
@@ -30,6 +32,7 @@ class TestGit:
     def test_success(self):
         assert 1 == 1
 
+    @pytest.mark.knownfailure
     def test_fail(self):
         assert 0 == 1
 

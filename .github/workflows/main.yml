@@ -1,0 +1,26 @@
+name: Test test-looper
+
+on:
+  push:
+    branches:
+      - main
+      - daniel-starter
+    pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+      - name: Install requirements
+        run: pip3 install --user -r requirements.txt
+      - name: Install test-looper
+        run: pip3 install --user -e .
+      - name: Run unit tests
+        run: pytest -m "not knownfailure" tests
