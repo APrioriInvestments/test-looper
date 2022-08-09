@@ -2,6 +2,7 @@ import json
 import os
 
 from test_looper.git import GIT
+from test_looper.git import Repo as GitPythonRepo
 
 
 class TestGit:
@@ -17,8 +18,7 @@ class TestGit:
         if os.path.isfile(cred_file):
             print("GIT credentials found")
             credentials = json.load(open(cred_file))
-            cls.GIT = GIT(user=credentials["user"],
-                          token=credentials["token"])
+            cls.GIT = GIT(user=credentials["user"], token=credentials["token"])
             cls.GIT.authenticate()
             if cls.GIT.authenticated:
                 print("authenticated")

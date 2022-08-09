@@ -7,7 +7,14 @@ import uuid
 
 from object_database.database_connection import DatabaseConnection
 from test_looper.git import GIT
-from test_looper.repo_schema import Repository, RepoConfig, RepoClone
+from test_looper.repo_schema import (
+    Branch,
+    Commit,
+    CommitParent,
+    Repository,
+    RepoConfig,
+    RepoClone,
+)
 from test_looper.schema import test_looper_schema
 from test_looper.service_schema import ArtifactStorageConfig, Config
 
@@ -86,13 +93,16 @@ class LooperService:
         if isinstance(config, str):
             config = parse_repo_url(config, default_scheme, private_key)
         with self.db.transaction():
-            repo = Repository(name=name, config=config)
-            Repository.lookupOne(name=name)
+            repo = Repository.lookupAny(name=name)
+            if repo:
+                assert repo.config == config
+            else:
+                repo = Repository(name=name, config=config)
             return repo.config
 
     def get_repo_config(self, name: str) -> Optional[RepoConfig]:
         with self.db.view():
-            repo = Repository.lookupOne(name=name)
+            repo = Repository.lookupAny(name=name)
             if repo is not None:
                 return repo.config
 
@@ -122,6 +132,11 @@ class LooperService:
         """
         if clone_name is None:
             clone_name = f"{name}-clone-{str(uuid.uuid4())}"
+        with self.db.view():
+            clone_repo = Repository.lookupAny(name=clone_name)
+            if clone_repo is not None:
+                return clone_repo.name, clone_repo.config
+
         clone_path = os.path.join(self.repo_url, clone_name)
         to_clone = self.get_repo_config(name)
         if to_clone is None:
@@ -144,13 +159,39 @@ class LooperService:
             remote = RepoClone.lookupOne(clone=clone).remote
             return remote.name, remote.config
 
+    def scan_repo(self, repo_name: str, branch: Optional[str]):
+        """
+        Scan the given repo / branch and add Branches/Commits etc to odb.
 
-_GIT = GIT()
+        Parameters
+        ----------
+        repo_name: str
+            Name of the local odb repository to scan
+        branch: str or list-like of str, default None
+            If None then just the default branch is scanned.
+            If it's a str then assume it's branch name
+            If the string is '*' then scan all branches
+        """
+        with self.db.transaction():
+            repo = Repository.lookupOne(name=repo_name)
+            if not isinstance(repo.config, RepoConfig.Local):
+                repo = RepoClone.lookupOne(remote=repo).clone
+            g = GIT()
+            if branch is None:
+                to_scan = [g.get_head(repo.config.path)]
+            elif branch == "*":
+                to_scan = g.list_branches(repo.config.path)
+            elif isinstance(branch, str):
+                to_scan = [g.get_branch(branch)]
+            elif isinstance(branch, list):
+                to_scan = [g.get_branch(b) for b in branch]
+            for b in to_scan:
+                parse_branch(repo, b)
 
 
 def _create_clone(conf: RepoConfig, clone_path):
     if isinstance(conf, RepoConfig.Https):
-        _GIT.clone(conf.url, clone_path)
+        GIT().clone(conf.url, clone_path, all_branches=True)
     else:
         raise NotImplementedError("Only public https cloning supported")
 
@@ -178,3 +219,67 @@ def parse_repo_url(
     if scheme == "s3":
         return RepoConfig.S3(url=url)
     raise NotImplementedError(f"No recognized scheme for {url}")
+
+
+def parse_branch(repo: Repository, branch: "git.Head") -> Branch:
+    """
+    Go through the designated branch and register everything as necessary
+    in odb. This includes 1) the branch itself, 2) commits and parents
+    and 3) commit parent relationship
+    """
+    top_commit = parse_commits(repo, branch.commit)
+    odb_b = Branch.lookupAny(repoAndName=(repo, branch.name))
+    if odb_b is None:
+        Branch(
+            repo=repo,
+            name=branch.name,
+            top_commit=top_commit,
+            is_prioritized=False,
+        )
+    else:
+        odb_b.top_commit = top_commit
+    return odb_b
+
+
+def parse_commits(repo: Repository, commit: "git.Commit") -> Commit:
+    """
+    Start from the commit sha given in `head` and keep traversing commit
+    parents until all parents are already in odb or no more parents exist.
+
+    Parameters
+    ----------
+    repo: RepoConfig.Local
+        The local repo whose active branch we want to parse commits from
+    head: str
+        The commit SHA where we want to start from (usually tip of a branch)
+
+    Returns
+    -------
+    c: Commit
+        The top commit as an ODB object
+    """
+    top_commit = make_commit(repo, commit)
+    to_process = [(top_commit, commit.parents)]
+    while len(to_process) > 0:
+        odb_c, parents = to_process.pop()
+        for p in parents:
+            odb_p = Commit.lookupAny(sha=p.hexsha)
+            if odb_p is None:
+                odb_p = make_commit(repo, p)
+                if len(p.parents) > 0:
+                    to_process.append((odb_p, p.parents))
+            rel = CommitParent.lookupAny(parentAndChild=(odb_p, odb_c))
+            if rel is None:
+                CommitParent(parent=odb_p, child=odb_c)
+    return top_commit
+
+
+def make_commit(repo, c):
+    return Commit(
+        repo=repo,
+        sha=c.hexsha,
+        summary=c.summary,
+        author_name=c.author.name,
+        author_email=c.author.email,
+        is_parsed=False,
+    )
