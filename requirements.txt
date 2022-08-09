@@ -2,3 +2,4 @@ click
 pytest
 pytest-json-report
 requests
+GitPython
