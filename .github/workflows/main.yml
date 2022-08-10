@@ -30,4 +30,4 @@ jobs:
       - name: Install test-looper
         run: pip3 install --user -e .
       - name: Run unit tests
-        run: pytest -m "not knownfailure" tests
+        run: pytest -m "not knownfailure" --ignore=tests/_template_repo tests
