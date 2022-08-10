@@ -3,7 +3,7 @@ name: Test test-looper
 on:
   push:
     branches:
-      - main
+      - dev
       - daniel-starter
     pull_request:
 
