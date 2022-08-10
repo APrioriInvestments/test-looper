@@ -16,39 +16,14 @@ from test_looper.repo_schema import Repository, RepoConfig, Commit, Branch
 from conftest import odb_conn
 
 
-@pytest.fixture(scope="module")
-def tl_config(
-    odb_conn: DatabaseConnection, tmp_path_factory: pytest.TempPathFactory
-) -> dict:
-    """
-    Create a test looper service Config and clean it up after we're done
-    """
-    tmp_path = tmp_path_factory.mktemp("odb")
-    storage = ArtifactStorageConfig.LocalDisk(
-        build_artifact_path=str(tmp_path / "build"),
-        test_artifact_path=str(tmp_path / "test"),
-    )
-    dd = dict(
-        repo_url=str(tmp_path / "repos"),
-        temp_url=str(tmp_path / "tmp"),
-        artifact_store=storage,
-    )
-    with odb_conn.transaction():
-        config = Config(**dd)
-    yield dd
-    with odb_conn.transaction():
-        config = Config.lookupUnique()
-        config.delete()
-
-
-def test_create_service(odb_conn: DatabaseConnection, tl_config):
+def test_create_service(odb_conn: DatabaseConnection, tl_config: dict):
     service = LooperService.from_odb(odb_conn)
     assert service.repo_url == tl_config["repo_url"]
     assert service.temp_url == tl_config["temp_url"]
     assert service.artifact_store == tl_config["artifact_store"]
 
 
-def test_add_repo(odb_conn: DatabaseConnection, tl_config):
+def test_add_repo(odb_conn: DatabaseConnection, tl_config: dict):
     service = LooperService.from_odb(odb_conn)
     # TODO test the FromService variant
     # test_parse_repo tests adding the other types
@@ -69,7 +44,7 @@ def test_add_repo(odb_conn: DatabaseConnection, tl_config):
         assert config.url == url
 
 
-def test_clone_repo(odb_conn: DatabaseConnection, tl_config):
+def test_clone_repo(odb_conn: DatabaseConnection, tl_config: dict):
     service = LooperService.from_odb(odb_conn)
     name = "test-looper"
     config = service.add_repo(
@@ -117,7 +92,7 @@ def test_parse_branch(odb_conn: DatabaseConnection, tl_repo: Repo):
             )
 
 
-def test_scan_repo(odb_conn: DatabaseConnection):
+def test_scan_repo(odb_conn: DatabaseConnection, tl_config: dict):
     service = LooperService.from_odb(odb_conn)
     service.add_repo(
         "test-looper", "https://github.com/aprioriinvestments/test-looper"
