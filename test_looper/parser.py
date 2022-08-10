@@ -60,11 +60,11 @@ class ParserService(ServiceMixin):
 
     @staticmethod
     def _parse_test_commands(commit: Commit, cmd_conf: list):
-        for cmd in cmd_conf:
+        for i, cmd in enumerate(cmd_conf):
             c = Command(bashCommand=f"{cmd['command']} {' '.join(cmd['args'])}")
             test_def = TestNodeDefinition.Test(runTests=c)
             TestNode(commit=commit,
-                     name="???",
+                     name=f"{commit.repo.name}-tests-{i}",
                      definition=test_def,
                      needsMoreWork=True)
 
