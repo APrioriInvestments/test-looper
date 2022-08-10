@@ -23,6 +23,10 @@ jobs:
       - name: pip install object_database from github
         timeout-minutes: 10  # Runs in ~3 min
         run: pip install -v git+https://github.com/APrioriInvestments/object_database.git
+      - name: Configure git (TL unit tests call git commandline)
+        run: |
+          git config --global user.email "you@example.com"
+          git config --global user.name "Your Name"
       - name: Install test-looper
         run: pip3 install --user -e .
       - name: Run unit tests
