@@ -106,4 +106,4 @@ TestResult = NamedTuple(
 @SubscribeLazilyByDefault
 class TestResults:
     node = Indexed(TestNode)
-    results = Dict(str, TupleOf(TestResult))
+    results = TupleOf(TestResult)

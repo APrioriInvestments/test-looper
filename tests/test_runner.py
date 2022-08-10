@@ -1,4 +1,5 @@
 """Test the test runner service"""
+import os
 import pathlib
 
 import pytest
@@ -58,7 +59,7 @@ def test_heartbeat(runner):
 
 def test_run_test(parser_service, dispatcher, runner):
     parser_service.parse_commits()
-    repo_root = pathlib.Path(__file__).parent.parent
+    repo_root = os.getcwd()
     curr_sha = GIT().get_head(repo_root).commit.hexsha
     with runner.db.transaction():
         node = TNode.lookupOne(commit=Commit.lookupOne(sha=curr_sha))
