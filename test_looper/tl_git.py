@@ -87,3 +87,7 @@ class GIT:
             if len(stdout) == 0:
                 raise ValueError("test_looper.json was empty")
             return stdout
+
+    @staticmethod
+    def checkout(repo, ref):
+        os.system(f"cd {repo} && git checkout {ref}")

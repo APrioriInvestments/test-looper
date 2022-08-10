@@ -1,17 +1,41 @@
+"""Execute test commands"""
+import contextlib
+import os
+from abc import ABC, abstractmethod
 from collections import defaultdict
 import json
+from datetime import datetime
+
 import pytest
 from typing import List
 import uuid
 
-from test_looper.runner import (
-    CommandRunner,
-    TestRunnerResult,
-    TestSummary,
-    TestCaseResult,
-    TestStep,
-    TestList
-)
+
+def get_command_runner(repo_dir, command, args):
+    if command == 'pytest':
+        return PytestRunner(repo_dir, args)
+    raise NotImplementedError(f"{command} is not yet supported")
+
+
+class CommandRunner(ABC):
+    """Abstract class to run a given test command"""
+
+    def __init__(self, repo_dir: str, args: List[str]):
+        self.repo_dir = repo_dir
+        self.args = args
+
+    @contextlib.contextmanager
+    def chdir(self):
+        old_dir = os.getcwd()
+        os.chdir(self.repo_dir)
+        try:
+            yield
+        finally:
+            os.chdir(old_dir)
+
+    @abstractmethod
+    def run_tests(self):
+        pass
 
 
 class PytestRunner(CommandRunner):
@@ -85,7 +109,7 @@ def parse_testcase_results(data):
     return TestCaseResult(
         name=data['nodeid'],
         status=data['outcome'],
-        duration=duration,
+        duration=duration,  # seconds
         setup=parse_step(data['setup']),
         testcase=parse_step(data.get('call', {})),
         teardown=parse_step(data.get('teardown'))
@@ -122,3 +146,65 @@ def parse_collector(data):
                     tests_dict[module_name] = module_dict
                 module_dict[class_name].append(test_name)
     return tests_dict
+
+
+class TestSummary:
+    """Summary statistics for a given test command invocation"""
+
+    def __init__(self,
+                 environment: dict,
+                 root: str,
+                 retcode: int,
+                 started: float,
+                 duration: float,
+                 num_tests: int,
+                 num_succeeded: int,
+                 num_failed: int):
+        self.environment = environment
+        self.root = root
+        self.retcode = retcode
+        self.started = datetime.fromtimestamp(started)
+        self.duration = duration
+        self.num_tests = num_tests
+        self.num_succeeded = num_succeeded
+        self.num_failed = num_failed
+
+
+class TestStep:
+    """Stats for a given step of a test case (setup, test case call, teardown)"""
+
+    def __init__(self, status: str, duration: float, msg: str, info: dict):
+        self.status = status
+        self.duration = duration
+        self.msg = msg
+        self.info = info
+
+
+class TestCaseResult:
+    """Results for a single test case"""
+    def __init__(self,
+                 name: str,
+                 status: str,
+                 duration: float,
+                 setup: TestStep,
+                 testcase: TestStep,
+                 teardown: TestStep):
+        self.name = name
+        self.status = status
+        self.duration = duration
+        self.setup = setup
+        self.testcase = testcase
+        self.teardown = teardown
+
+
+class TestRunnerResult:
+    """Result wrapper for a single test command invocation"""
+    def __init__(self, summary: TestSummary, tests: List[TestCaseResult]):
+        self.summary = summary
+        self.results = tests
+
+
+class TestList:
+    """I contain a dictionary {module: {class: [test]}} of all tests"""
+    def __init__(self, tests: dict):
+        self.tests = tests

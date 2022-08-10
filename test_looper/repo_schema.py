@@ -7,6 +7,8 @@ from test_looper import test_looper_schema
 
 
 # describe generic services, which can provide lots of different repos
+from test_looper.tl_git import GIT
+
 GitService = Alternative(
     "GitService",
     Github=dict(
@@ -52,6 +54,12 @@ class Repository:
     config = RepoConfig
     name = Indexed(str)
 
+    def checkout(self, ref: str):
+        if isinstance(self.config, RepoConfig.Local):
+            GIT().checkout(self.config.path, ref)
+        else:
+            raise NotImplementedError()
+
 
 # TODO do we actually want to manage local clones in ODB?
 @test_looper_schema.define
@@ -91,6 +99,9 @@ class Commit:
         for p in parents:
             if p not in curParents:
                 CommitParent(parent=p, child=self)
+
+    def checkout(self):
+        self.repo.checkout(self.sha)
 
 
 @test_looper_schema.define

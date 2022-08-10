@@ -1,147 +1,103 @@
-# The TestRunner class provides methods for running tests
-# capturing and processing output
-import contextlib
-import json
-import os
-from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import List
+"""Test runner service"""
+import threading
+import time
+import uuid
+
+from object_database.database_connection import DatabaseConnection
+
+from test_looper.command import get_command_runner, TestRunnerResult
+from test_looper.test_schema import TestNode, Worker, TestResults, TestResult, TestNodeDefinition
+from test_looper.utils import transaction, ServiceMixin
 
 
-class TestRunner:
-    """
-    Run the tests for a given repo (excluding repo dependencies)
-    """
+class DispatchService(ServiceMixin):
+    """assigns tests to workers"""
 
-    def __init__(self, repo_dir: str, runner_file_name='test_looper.json'):
-        self.repo_dir = repo_dir
-        self.runner_file = os.path.join(repo_dir, runner_file_name)
-        self._test_commands = None
+    def start(self):
+        self.start_threadloop(self.assign_nodes)
 
-    @property
-    def test_commands(self):
-        if self._test_commands is None:
-            self.setup()
-        return self._test_commands
+    @transaction
+    def assign_nodes(self):
+        """Find TestNode's the needs more work and assign them to workers"""
+        nodes = [n for n in TestNode.lookupAll(needsMoreWork=True) if not n.isAssigned]
+        workers = Worker.lookupAll(currentAssignment=None)
+        if len(nodes) > 0 and len(workers) > 0:
+            self.logger.debug(f"Assigning {len(nodes)} TestNodes to {len(workers)} available workers")
+        for i in range(min(len(nodes), len(workers))):
+            workers[i].currentAssignment = nodes[i]
+            nodes[i].isAssigned = True
 
-    def setup(self):
-        """
-        I read in the test commands from self.runner_file
-        and setup capture of test output
-        """
-        if not os.path.isfile(self.runner_file):
-            raise FileNotFoundError(
-                f"Test runner file {self.runner_file} not found: exiting!"
-            )
-        command_data = json.loads(open(self.runner_file).read())
-        self._test_commands = command_data["test_commands"]
 
-    def list(self):
+class RunnerService(ServiceMixin):
+    """Runs tests"""
+
+    def __init__(self, db: DatabaseConnection, worker_id: str):
+        super(RunnerService, self).__init__(db)
+        self.worker_id = worker_id
+        with self.db.transaction():
+            worker = Worker.lookupAll(workerId=self.worker_id)
+            if len(worker) > 1:
+                raise ValueError("Duplicate worker")
+            if len(worker) == 0:
+                Worker(workerId=self.worker_id,
+                       startTimestamp=time.time_ns(),
+                       lastHeartbeatTimestamp=time.time_ns())
+
+    def start(self):
+        self.start_threadloop(self.heartbeat)
+        self.start_threadloop(self.run_test)
+
+    @transaction
+    def heartbeat(self):
+        worker = Worker.lookupOne(workerId=self.worker_id)
+        worker.lastHeartbeatTimestamp = time.time_ns()
+        return worker.lastHeartbeatTimestamp
+
+    @transaction
+    def run_test(self):
+        worker = Worker.lookupOne(workerId=self.worker_id)
+        test_node = worker.currentAssignment
+        if test_node is not None:
+            try:
+                self._execute_tests(test_node)
+                test_node.executionResultSummary = "Success"
+            except TimeoutError:
+                test_node.executionResultSummary = "Timeout"
+            except Exception:
+                test_node.executionResultSummary = "Fail"
+            worker.lastTestCompletedTimestamp = time.time_ns()
+            worker.currentAssignment = None
+            test_node.needsMoreWork = False
+            test_node.isAssigned = False
+
+    def _execute_tests(self, test_node: TestNode):
+        test_def = test_node.definition
+        if isinstance(test_def, TestNodeDefinition.Test):
+            test_node.commit.checkout()
+            repo_path = test_node.commit.repo.config.path
+            self._run_test_commands(repo_path, test_node)
+        elif isinstance(test_def, TestNodeDefinition.Build):
+            raise NotImplementedError()
+        elif isinstance(test_def, TestNodeDefinition.Docker):
+            raise NotImplementedError()
+
+    @staticmethod
+    def _run_test_commands(repo_path: str, test_node: TestNode):
+        test_def = test_node.definition
+        parts = test_def.runTests.bashCommand.split(' ')
+        runner = get_command_runner(repo_path, parts[0], parts[1:])
+        # TODO save json report to artifact url
+        # TODO pass in the timeout
+        cmd_output = runner.run_tests()
+        trr: TestRunnerResult = cmd_output['results']
+        test_node.testsDefined = trr.summary.num_tests
+        test_node.testsFailing = trr.summary.num_failed
+        # TODO parse previous report from artifact url newlyFailing, newlyFixed, executedAtLeastOnce
         results = []
-        for command in self.test_commands:
-            runner = get_command_runner(self.repo_dir,
-                                        command["command"].lower().strip(),
-                                        command["args"])
-            results.append((command, runner.list_tests()))
-        return results
-
-    def run(self):
-        results = []
-        for command in self.test_commands:
-            # repeat as specified, default 1
-            for i in range(command.get("repeat", 1)):
-                runner = get_command_runner(self.repo_dir,
-                                            command["command"].lower().strip(),
-                                            command["args"])
-                results.append((command, runner.run_tests()))
-        return results
-
-
-def get_command_runner(repo_dir, command, args):
-    if command == 'pytest':
-        from .pytest_runner import PytestRunner
-        return PytestRunner(repo_dir, args)
-    raise NotImplementedError(f"{command} is not yet supported")
-
-
-class CommandRunner(ABC):
-    """Abstract class to run a given test command"""
-
-    def __init__(self, repo_dir: str, args: List[str]):
-        self.repo_dir = repo_dir
-        self.args = args
-
-    @contextlib.contextmanager
-    def chdir(self):
-        old_dir = os.getcwd()
-        os.chdir(self.repo_dir)
-        try:
-            yield
-        finally:
-            os.chdir(old_dir)
-
-    @abstractmethod
-    def run_tests(self):
-        pass
-
-
-class TestSummary:
-    """Summary statistics for a given test command invocation"""
-
-    def __init__(self,
-                 environment: dict,
-                 root: str,
-                 retcode: int,
-                 started: float,
-                 duration: float,
-                 num_tests: int,
-                 num_succeeded: int,
-                 num_failed: int):
-        self.environment = environment
-        self.root = root
-        self.retcode = retcode
-        self.started = datetime.fromtimestamp(started)
-        self.duration = duration
-        self.num_tests = num_tests
-        self.num_succeeded = num_succeeded
-        self.num_failed = num_failed
-
-
-class TestStep:
-    """Stats for a given step of a test case (setup, test case call, teardown)"""
-
-    def __init__(self, status: str, duration: float, msg: str, info: dict):
-        self.status = status
-        self.duration = duration
-        self.msg = msg
-        self.info = info
-
-
-class TestCaseResult:
-    """Results for a single test case"""
-    def __init__(self,
-                 name: str,
-                 status: str,
-                 duration: float,
-                 setup: TestStep,
-                 testcase: TestStep,
-                 teardown: TestStep):
-        self.name = name
-        self.status = status
-        self.duration = duration
-        self.setup = setup
-        self.testcase = testcase
-        self.teardown = teardown
-
-
-class TestRunnerResult:
-    """Result wrapper for a single test command invocation"""
-    def __init__(self, summary: TestSummary, tests: List[TestCaseResult]):
-        self.summary = summary
-        self.results = tests
-
-
-class TestList:
-    """I contain a dictionary {module: {class: [test]}} of all tests"""
-    def __init__(self, tests: dict):
-        self.tests = tests
+        for case_result in trr.results:
+            tr = TestResult(testId=str(uuid.uuid4()),
+                            testName=case_result.name,
+                            success=case_result.status == "passed",
+                            executionTime=int(round(case_result.duration * 1e9)))
+            results.append(tr)
+        TestResults(node=test_node, results=results)

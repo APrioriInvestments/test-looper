@@ -1,36 +1,16 @@
 """Service to parse commits and create a test plan"""
-import contextlib
-from functools import wraps
 import json
-
-from object_database.database_connection import DatabaseConnection
 
 from test_looper.repo_schema import Commit, RepoConfig
 from test_looper.test_schema import TestNode, Command, TestNodeDefinition
 from test_looper.tl_git import GIT
+from test_looper.utils import transaction, ServiceMixin
 
 
-def view(f):
-    @wraps(f)
-    def view_func(self, *args, **kwargs):
-        with self.db.view():
-            return f(self, *args, **kwargs)
-    return view_func
+class ParserService(ServiceMixin):
 
-
-def transaction(f):
-    @wraps(f)
-    def trans_func(self, *args, **kwargs):
-        with self.db.transaction():
-            return f(self, *args, **kwargs)
-    return trans_func
-
-
-class TestParserService:
-
-    def __init__(self, db: DatabaseConnection, repo_url: str):
-        self.db = db
-        self.repo_url = repo_url
+    def start(self):
+        self.start_threadloop(self.parse_commits)
 
     @transaction
     def parse_commits(self, max_num_commits: int = None) -> int:
@@ -90,11 +70,11 @@ class TestParserService:
 
     @staticmethod
     def _parse_build_commands(commit: Commit, cmd_txt: list):
-        # TODO decide on the format and imlement
+        # TODO decide on the format and implement
         raise NotImplementedError()
 
     @staticmethod
     def _parse_docker_image(commit: Commit, cmd_txt: list):
-        # TODO decide on the format and imlement
+        # TODO decide on the format and implement
         raise NotImplementedError()
 
