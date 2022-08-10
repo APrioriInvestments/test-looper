@@ -1,16 +1,12 @@
 """Test the test runner service"""
-import os
-import pathlib
 
 import pytest
 from object_database.database_connection import DatabaseConnection
 
-from test_looper.repo_schema import Commit
 from test_looper.runner import RunnerService, DispatchService
 from test_looper.test_schema import TestNode as TNode, TestResults as TResults
 from test_looper.test_schema import Worker
-from test_looper.tl_git import GIT
-from test_parser import parser_service
+from test_parser import parser_service, template_repo
 
 
 @pytest.fixture
@@ -59,10 +55,8 @@ def test_heartbeat(runner):
 
 def test_run_test(parser_service, dispatcher, runner):
     parser_service.parse_commits()
-    repo_root = os.getcwd()
-    curr_sha = GIT().get_head(repo_root).commit.hexsha
     with runner.db.transaction():
-        node = TNode.lookupOne(commit=Commit.lookupOne(sha=curr_sha))
+        node = TNode.lookupUnique()
         name = node.name
         assert node.executionResultSummary is None
         node.isAssigned = True
@@ -70,12 +64,11 @@ def test_run_test(parser_service, dispatcher, runner):
         w.currentAssignment = node
     runner.run_test()
     with runner.db.view():
-        c = Commit.lookupOne(sha=curr_sha)
-        node = TNode.lookupOne(commitAndName=(c, name))
+        node = TNode.lookupUnique()
         assert node.executionResultSummary == "Success"
-        assert node.testsDefined > 0
+        assert node.testsDefined == 2
+        assert node.testsFailing == 1
 
-        results = TResults.lookupOne(node)
-
-
-
+        results = TResults.lookupOne(node=node).results
+        assert len(results) == 2
+        assert sum([r.success for r in results]) == 1

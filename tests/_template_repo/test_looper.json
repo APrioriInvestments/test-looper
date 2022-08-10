@@ -1,6 +1,5 @@
 {
     "test_commands": [
-        {"command": "pytest", "args": ["./tests"]},
-        {"command": "pytest", "args": ["tests/test.py::TestTest::test_success"], "repeat": 3}
+        {"command": "pytest", "args": ["tests"]}
     ]
 }

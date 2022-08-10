@@ -91,3 +91,11 @@ class GIT:
     @staticmethod
     def checkout(repo, ref):
         os.system(f"cd {repo} && git checkout {ref}")
+
+    @staticmethod
+    def init_repo(repo):
+        cmd = (f'cd {repo} && '
+               'git init && '
+               'git add . && '
+               'git commit -m "initial commit"')
+        subprocess.check_call(cmd, shell=True)
