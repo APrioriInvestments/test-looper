@@ -87,3 +87,15 @@ class GIT:
             if len(stdout) == 0:
                 raise ValueError("test_looper.json was empty")
             return stdout
+
+    @staticmethod
+    def checkout(repo, ref):
+        os.system(f"cd {repo} && git checkout {ref}")
+
+    @staticmethod
+    def init_repo(repo):
+        cmd = (f'cd {repo} && '
+               'git init && '
+               'git add . && '
+               'git commit -m "initial commit"')
+        subprocess.check_call(cmd, shell=True)

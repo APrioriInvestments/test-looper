@@ -15,11 +15,12 @@ from test_looper.repo_schema import (
     RepoConfig,
     RepoClone,
 )
-from test_looper.schema import test_looper_schema
+from test_looper import test_looper_schema
 from test_looper.service_schema import ArtifactStorageConfig, Config
+from test_looper.utils import ServiceMixin, transaction, view
 
 
-class LooperService:
+class LooperService(ServiceMixin):
     """
     Defines the TestLooper service
     """
@@ -43,10 +44,17 @@ class LooperService:
         db: DatabaseConnection
             ODB connection
         """
+        super(LooperService, self).__init__(db)
         self.repo_url = repo_url
         self.temp_url = temp_url
         self.artifact_store = artifact_store
-        self.db = db
+
+    def start(self):
+        # 1. Get all repos
+        # 2. Clone all repos
+        # 3. Scan all clones
+        # 4. Delete all clones
+        pass
 
     @staticmethod
     def from_odb(db: DatabaseConnection) -> "LooperService":
@@ -66,6 +74,7 @@ class LooperService:
                 db, config.repo_url, config.temp_url, config.artifact_store
             )
 
+    @transaction
     def add_repo(
         self,
         name: str,
@@ -92,23 +101,22 @@ class LooperService:
         """
         if isinstance(config, str):
             config = parse_repo_url(config, default_scheme, private_key)
-        with self.db.transaction():
-            repo = Repository.lookupAny(name=name)
-            if repo:
-                assert repo.config == config
-            else:
-                repo = Repository(name=name, config=config)
+        repo = Repository.lookupAny(name=name)
+        if repo:
+            assert repo.config == config
+        else:
+            repo = Repository(name=name, config=config)
+        return repo.config
+
+    @view
+    def get_repo_config(self, name: str) -> Optional[RepoConfig]:
+        repo = Repository.lookupAny(name=name)
+        if repo is not None:
             return repo.config
 
-    def get_repo_config(self, name: str) -> Optional[RepoConfig]:
-        with self.db.view():
-            repo = Repository.lookupAny(name=name)
-            if repo is not None:
-                return repo.config
-
+    @view
     def get_all_repos(self) -> Dict[str, RepoConfig]:
-        with self.db.view():
-            return {repo.name: repo.config for repo in Repository.lookupAll()}
+        return {repo.name: repo.config for repo in Repository.lookupAll()}
 
     def clone_repo(
         self, name: str, clone_name: str = None
@@ -150,16 +158,17 @@ class LooperService:
             RepoClone(remote=orig_repo, clone=clone_repo)
             return clone_name, clone_repo.config
 
+    @view
     def get_remote(self, clone_name: str) -> (str, RepoConfig):
         """
         Get the remote repo that originated the local repo with the given
         clone_name
         """
-        with self.db.view():
-            clone = Repository.lookupOne(name=clone_name)
-            remote = RepoClone.lookupOne(clone=clone).remote
-            return remote.name, remote.config
+        clone = Repository.lookupOne(name=clone_name)
+        remote = RepoClone.lookupOne(clone=clone).remote
+        return remote.name, remote.config
 
+    @transaction
     def scan_repo(self, repo_name: str, branch: Optional[str]):
         """
         Scan the given repo / branch and add Branches/Commits etc to odb.
@@ -173,21 +182,22 @@ class LooperService:
             If it's a str then assume it's branch name
             If the string is '*' then scan all branches
         """
-        with self.db.transaction():
-            repo = Repository.lookupOne(name=repo_name)
-            if not isinstance(repo.config, RepoConfig.Local):
-                repo = RepoClone.lookupOne(remote=repo).clone
-            g = GIT()
-            if branch is None:
-                to_scan = [g.get_head(repo.config.path)]
-            elif branch == "*":
-                to_scan = g.list_branches(repo.config.path)
-            elif isinstance(branch, str):
-                to_scan = [g.get_branch(branch)]
-            elif isinstance(branch, list):
-                to_scan = [g.get_branch(b) for b in branch]
-            for b in to_scan:
-                parse_branch(repo, b)
+        repo = Repository.lookupOne(name=repo_name)
+        if not isinstance(repo.config, RepoConfig.Local):
+            repo = RepoClone.lookupOne(remote=repo).clone
+        g = GIT()
+        if branch is None:
+            to_scan = [g.get_head(repo.config.path)]
+        elif branch == "*":
+            to_scan = g.list_branches(repo.config.path)
+        elif isinstance(branch, str):
+            to_scan = [g.get_branch(repo.config.path, branch)]
+        elif isinstance(branch, (list, tuple)):
+            to_scan = [g.get_branch(repo.config.path, b) for b in branch]
+        else:
+            raise NotImplementedError()
+        for b in to_scan:
+            parse_branch(repo, b)
 
 
 def _create_clone(conf: RepoConfig, clone_path):
@@ -214,12 +224,11 @@ def parse_repo_url(
         return RepoConfig.Https(url=url)
     if scheme == "ssh":
         return RepoConfig.Ssh(url=url, private_key=private_key)
+    if scheme == "file":
         path = rs.path if not rs.netloc else f"/{rs.netloc}{rs.path}"
         return RepoConfig.Local(path=path)
     if scheme == "s3":
         return RepoConfig.S3(url=url)
-    if scheme == "file":
-        return RepoConfig.Local(path=rs.path)
     raise NotImplementedError(f"No recognized scheme for {url}")
 
 

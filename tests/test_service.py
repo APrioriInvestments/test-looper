@@ -1,19 +1,16 @@
-from pathlib import Path
 from urllib.parse import urlparse
 
-from object_database.database_connection import DatabaseConnection
 import pytest
+from object_database.database_connection import DatabaseConnection
 
-from test_looper.tl_git import GIT, Repo
+from test_looper.repo_schema import Repository, RepoConfig, Commit, Branch
 from test_looper.service import (
     LooperService,
     parse_repo_url,
     parse_commits,
     parse_branch,
 )
-from test_looper.service_schema import Config, ArtifactStorageConfig
-from test_looper.repo_schema import Repository, RepoConfig, Commit, Branch
-from conftest import odb_conn
+from test_looper.tl_git import GIT, Repo
 
 
 def test_create_service(odb_conn: DatabaseConnection, tl_config: dict):

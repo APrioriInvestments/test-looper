@@ -36,7 +36,7 @@ TestNodeDefinition = Alternative(
     ),
     # run arbitrary code to produce a list of tests, and then run them
     Test=dict(
-        inputs=TupleOf(str), # named inputs
+        inputs=TupleOf(str),  # named inputs
         minCpus=int,
         minRamGb=float,
         listTests=Command,
@@ -73,13 +73,32 @@ class TestNode:
     # crude proxy for the state machine we'll need to decide what to build/run
     needsMoreWork = Indexed(bool)
 
+    isAssigned = Indexed(bool)
+
+
+@test_looper_schema.define
+class Worker:
+    workerId = Indexed(str)
+
+    startTimestamp = int  # nanoseconds since epoch
+
+    # used to check if this worker is still alive
+    lastHeartbeatTimestamp = OneOf(None, int)  # nanoseconds since epoch
+
+    # used to check if it's safe to shutdown this worker
+    lastTestCompletedTimestamp = OneOf(None, int)  # nanoseconds since epoch
+
+    # machines are assigned to test nodes
+    # TODO maybe create a separate Assignment object because Worker belongs with the Service
+    currentAssignment = Indexed(OneOf(None, TestNode))
+
 
 TestResult = NamedTuple(
-    # guid we can use to pull relevant logs from the artifact store
-    testId=str,
+    testId=str, # guid we can use to pull relevant logs from the artifact store
+    testName=str,
     success=bool,
-    startTime=float,
-    executionTime=float
+    startTime=int,  # nanoseconds since epoch
+    executionTime=int  # nanoseconds
 )
 
 
@@ -87,5 +106,4 @@ TestResult = NamedTuple(
 @SubscribeLazilyByDefault
 class TestResults:
     node = Indexed(TestNode)
-
-    testResults = Dict(str, TupleOf(TestResult))
+    results = TupleOf(TestResult)

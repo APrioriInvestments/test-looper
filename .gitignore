@@ -147,3 +147,5 @@ dmypy.json
 nohup.out
 
 **/*~
+
+tests/_template_repo/.git
