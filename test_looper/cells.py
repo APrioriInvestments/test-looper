@@ -6,6 +6,7 @@ from object_database.web.cells.webgl_plot import Plot
 
 from test_looper import test_looper_schema
 from test_looper.test_schema import TestResults
+from test_looper.repo_schema import Commit, Branch
 
 
 # globals
@@ -64,7 +65,7 @@ class TLService(ServiceBase):
                     selections_card(), horizontal="center", vertical="top"),
                 cells.ResizablePanel(
                     cells.FillSpace(
-                        test_results_grid(), horizontal="center",
+                        test_results_table(), horizontal="center",
                         vertical="top"
                     ),
                     cells.FillSpace(
@@ -79,7 +80,7 @@ class TLService(ServiceBase):
 
 # Reporting ###
 # I display test run resports #
-def test_results_grid():
+def test_results_table():
     column = ['id', 'name', 'success', 'startTime', 'executionTime']
     results = [
         tcr[0] for tcr in [tr.results for tr in TestResults.lookupAll()]
@@ -92,7 +93,7 @@ def test_results_grid():
                  headerFun=lambda x: x,
                  # rendererFun=lambda w, field: cells.Popover(
                  #    f"{field} {w}", "title", "detail"),
-                 rendererFun=test_results_grid_render_fun(),
+                 rendererFun=test_results_table_render_fun(),
                  maxRowsPerPage=50,
                  sortColumn="name",
                  sortColumnAscending=True,
@@ -103,7 +104,7 @@ def test_results_grid():
     )
 
 
-def test_results_grid_render_fun():
+def test_results_table_render_fun():
     return lambda result, col: (
         result.testId if col == 'id' else
         result.testName if col == 'name' else
@@ -141,7 +142,7 @@ def selections_card():
                             cells.Subscribed(
                                 lambda: cells.Dropdown(
                                     "Git branch: " + str(branch_slot.get()),
-                                    available_branches_slot.get(),
+                                    [b.name for b in Branch.lookupAll()],
                                     lambda i: branch_slot.set(i)
                                 )
                             ) +
@@ -150,7 +151,7 @@ def selections_card():
                                     lambda: cells.Dropdown(
                                         "Git commit: " + str(
                                             commit_slot.get()['sha']),
-                                        available_commits_slot.get(),
+                                        [c.sha for c in Commit.lookupAll()],
                                         lambda i:_commit_setter(i)
                                     )
                                 )
@@ -171,6 +172,15 @@ def selections_card():
 
 
 def info_panel():
+    # TODO: sort out how to really deal with commits
+    commits = Commit.lookupAll()
+    commit = commits[0]
+    return cells.Center(
+        cells.Text(f'author name: {commit.author_name}') +
+        cells.Text(f'author_email: {commit.author_email}') +
+        cells.Text(f'summary: {commit.summary}') +
+        cells.Text(f'parents: {commit.parents}')
+    )
     return cells.Subscribed(
             lambda: cells.FillSpace(
                 cells.Text(
@@ -192,6 +202,6 @@ def _commit_setter(i):
         "summary": "summary for commit {}".format(i),
         "author_name": "author for commit {}".format(i),
         "author_email": "email for commit {}".format(i),
-        "sha": "sha_for_commit_{}".format(i)
+        "sha": i
     }
     commit_slot.set(data)
