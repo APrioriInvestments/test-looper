@@ -4,7 +4,8 @@ import object_database.web.cells as cells
 from object_database import connect, ServiceBase
 from object_database.web.cells.webgl_plot import Plot
 
-from .schema import test_looper_schema, TestNode
+from test_looper import test_looper_schema
+from test_looper.test_schema import TestResults
 
 
 # globals
@@ -43,8 +44,8 @@ class TLService(ServiceBase):
             time.sleep(.1)
 
             with self.db.transaction():
-                nodes = TestNode.lookupAll()
-                for n in nodes:
+                result = TestResults.lookupAll()
+                for n in result:
                     print((n.name, n.testsDefined, n.needsMoreWork))
                     if n.timestamp < time.time() - n.lifetime:
                         # this will actually delete the object from the ODB.
@@ -63,7 +64,7 @@ class TLService(ServiceBase):
                     selections_card(), horizontal="center", vertical="top"),
                 cells.ResizablePanel(
                     cells.FillSpace(
-                        test_results_table(), horizontal="center",
+                        test_results_grid(), horizontal="center",
                         vertical="top"
                     ),
                     cells.FillSpace(
@@ -78,29 +79,38 @@ class TLService(ServiceBase):
 
 # Reporting ###
 # I display test run resports #
-def test_results_table():
+def test_results_grid():
+    column = ['id', 'name', 'success', 'startTime', 'executionTime']
+    results = [
+        tcr[0] for tcr in [tr.results for tr in TestResults.lookupAll()]
+    ]
     return cells.Card(
-        cells.Highlighted(
-            cells.Table(
-                colFun=lambda: ['name', 'testsDefined', 'needsMoreWork'],
-                rowFun=lambda: TestNode.lookupAll(),
-                headerFun=lambda x: x,
-                rendererFun=test_results_table_render_fun(),
-                maxRowsPerPage=100,
-                fillHeight=True
-                ), color="lightblue"
-        ),
-        header="Test reporting",
-        padding=5
+         cells.Scrollable(
+             cells.Table(
+                 colFun=lambda: column,
+                 rowFun=lambda: results,
+                 headerFun=lambda x: x,
+                 # rendererFun=lambda w, field: cells.Popover(
+                 #    f"{field} {w}", "title", "detail"),
+                 rendererFun=test_results_grid_render_fun(),
+                 maxRowsPerPage=50,
+                 sortColumn="name",
+                 sortColumnAscending=True,
+             )
+         ),
+         header="Test reporting",
+         padding=5
     )
 
 
-def test_results_table_render_fun():
-    return lambda n, col: cells.Subscribed(
-        lambda:
-            n.name if col == 'name' else
-            n.testsDefined if col == 'testsDefined'
-        else n.needsMoreWork)
+def test_results_grid_render_fun():
+    return lambda result, col: (
+        result.testId if col == 'id' else
+        result.testName if col == 'name' else
+        result.success if col == 'success' else
+        result.startTime if col == 'startTime' else
+        result.executionTime
+    )
 
 
 # Plots & Graphs ###

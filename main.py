@@ -59,8 +59,12 @@ def main(host, port, token):
     with odb.view():
         for tr in TestResults.lookupAll():
             print(f'{tr.node.name} has {tr.node.testsDefined} tests defined')
+            print(f'{tr.node}')
             for tcr in tr.results:
-                print(f'{tcr.testName} {"passed" if tcr.success else "failed" } in {tcr.executionTime}ns')
+                print(
+                    f'{tcr.testName} {"passed" if tcr.success else "failed" } \
+                    in {tcr.executionTime}ns'
+                )
 
     # you should see something like:
     # template_repo-tests-0 has 2 tests defined

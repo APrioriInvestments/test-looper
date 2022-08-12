@@ -102,9 +102,12 @@ class LooperService(ServiceMixin):
         if isinstance(config, str):
             config = parse_repo_url(config, default_scheme, private_key)
         repo = Repository.lookupAny(name=name)
-        if repo:
-            assert repo.config == config
-        else:
+        # TODO: revist this, maybe the repo should be deleted first if found
+        # if repo:
+        #    assert repo.config == config
+        # else:
+        #    repo = Repository(name=name, config=config)
+        if not repo:
             repo = Repository(name=name, config=config)
         return repo.config
 
