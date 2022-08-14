@@ -54,20 +54,6 @@ class Repository:
     config = RepoConfig
     name = Indexed(str)
 
-    def checkout(self, ref: str):
-        if isinstance(self.config, RepoConfig.Local):
-            GIT().checkout(self.config.path, ref)
-        else:
-            raise NotImplementedError()
-
-
-# TODO do we actually want to manage local clones in ODB?
-@test_looper_schema.define
-class RepoClone:
-    remote = Indexed(Repository)
-    clone = Indexed(Repository)
-    # TODO add a machine id here since clones are local?
-
 
 @test_looper_schema.define
 class Commit:

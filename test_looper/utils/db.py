@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -8,6 +9,8 @@ from typing import Callable
 
 from object_database.database_connection import DatabaseConnection
 
+from test_looper.repo_schema import Repository, RepoConfig
+from test_looper.tl_git import GIT
 
 logger = logging.getLogger('TestLooper')
 logger.setLevel(logging.DEBUG)
@@ -41,10 +44,19 @@ def synchronized(func):
 
 class ServiceMixin(ABC):
 
-    def __init__(self, db: DatabaseConnection):
+    def __init__(self, db: DatabaseConnection, repo_url: str):
+        """
+        Parameters
+        ----------
+        db: DatabaseConnection
+            ODB connection
+        repo_url: str
+            The root url where we're going to put cloned repos
+        """
         self.db = db
         self._shutdown = False
         self.logger = logger
+        self.repo_url = repo_url
 
     @abstractmethod
     def start(self):
@@ -72,3 +84,8 @@ class ServiceMixin(ABC):
         while not self._shutdown:
             func()
             time.sleep(poll_interval)
+
+    def get_clone(self, repo: Repository):
+        clone_path = os.path.join(self.repo_url, repo.name)
+        is_found = os.path.exists(clone_path)
+        return is_found, clone_path

@@ -1,5 +1,9 @@
 """Service to parse commits and create a test plan"""
 import json
+import os
+import pdb
+
+from object_database.database_connection import DatabaseConnection
 
 from test_looper.repo_schema import Commit, RepoConfig
 from test_looper.test_schema import TestNode, Command, TestNodeDefinition
@@ -8,6 +12,9 @@ from test_looper.utils.db import transaction, ServiceMixin
 
 
 class ParserService(ServiceMixin):
+
+    def __init__(self, db: DatabaseConnection, repo_url: str = None):
+        super(ParserService, self).__init__(db, repo_url)
 
     def start(self):
         self.start_threadloop(self.parse_commits)
@@ -33,9 +40,11 @@ class ParserService(ServiceMixin):
         return num_parsed
 
     def _parse(self, commit: Commit):
-        conf = commit.repo.config
-        assert(isinstance(conf, RepoConfig.Local))
-        tl_conf = self._parse_tl_json(commit.sha, conf.path)
+        is_found, clone_path = self.get_clone(commit.repo)
+        if not is_found:
+            raise FileNotFoundError(f"{clone_path} not found; "
+                                    f"can't parse commits")
+        tl_conf = self._parse_tl_json(commit.sha, clone_path)
         if tl_conf is None:
             return False
         self._create_test_plan(commit, tl_conf)

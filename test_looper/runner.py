@@ -1,4 +1,5 @@
 """Test runner service"""
+import os.path
 import threading
 import time
 import uuid
@@ -7,6 +8,8 @@ from object_database.database_connection import DatabaseConnection
 
 from test_looper.command import get_command_runner, TestRunnerResult
 from test_looper.test_schema import TestNode, Worker, TestResults, TestResult, TestNodeDefinition
+
+from test_looper.tl_git import GIT
 from test_looper.utils.db import transaction, ServiceMixin
 
 
@@ -31,8 +34,8 @@ class DispatchService(ServiceMixin):
 class RunnerService(ServiceMixin):
     """Runs tests"""
 
-    def __init__(self, db: DatabaseConnection, worker_id: str):
-        super(RunnerService, self).__init__(db)
+    def __init__(self, db: DatabaseConnection, repo_url: str, worker_id: str):
+        super(RunnerService, self).__init__(db, repo_url)
         self.worker_id = worker_id
         with self.db.transaction():
             worker = Worker.lookupAll(workerId=self.worker_id)
@@ -73,9 +76,11 @@ class RunnerService(ServiceMixin):
     def _execute_tests(self, test_node: TestNode):
         test_def = test_node.definition
         if isinstance(test_def, TestNodeDefinition.Test):
-            test_node.commit.checkout()
-            repo_path = test_node.commit.repo.config.path
-            self._run_test_commands(repo_path, test_node)
+            is_found, clone_path = self.get_clone(test_node.commit.repo)
+            if not is_found:
+                raise FileNotFoundError(f"{clone_path} not found; "
+                                        f"can't run tests")
+            self._run_test_commands(clone_path, test_node)
         elif isinstance(test_def, TestNodeDefinition.Build):
             raise NotImplementedError()
         elif isinstance(test_def, TestNodeDefinition.Docker):
@@ -83,6 +88,7 @@ class RunnerService(ServiceMixin):
 
     @staticmethod
     def _run_test_commands(repo_path: str, test_node: TestNode):
+        GIT().checkout(repo_path, test_node.commit.sha)
         test_def = test_node.definition
         parts = test_def.runTests.bashCommand.split(' ')
         runner = get_command_runner(repo_path, parts[0], parts[1:])
