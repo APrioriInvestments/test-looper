@@ -71,6 +71,7 @@ class TLService(ServiceBase):
                     cells.FillSpace(
                         plots_card(), horizontal="center", vertical="top"
                     ),
+                    split="horizontal"
                 )
             )
         )
@@ -116,14 +117,34 @@ def test_results_table_render_fun():
 
 # Plots & Graphs ###
 def plots_card():
+    results = [
+        tcr[0] for tcr in [tr.results for tr in TestResults.lookupAll()]
+    ]
+    x = range(len(results))
+    y = [r.executionTime/1000 for r in results]
     return cells.Card(
-        cells.Highlighted(
-            cells.WebglPlot(lambda: Plot.create([1, 2, 3], [1, 2, 3])),
-            color="lightblue"
+        cells.Subscribed(
+            lambda: cells.WebglPlot(
+                lambda: Plot.create(
+                    x, y, lineWidth=10, color=(51, 117, 180, 0.8)
+                ).withBottomAxis(
+                    label="tests"
+                ).withLeftAxis(
+                    label="elapsed time in seconds"
+                ).withMouseoverFunction(plot_hover)
+            )
         ),
         header="Tests Overview",
         padding=5
     )
+
+
+def plot_hover(x, y, screenRect):
+    return [
+        Plot.MouseoverLegend(
+            x=x, y=y, contents=[[Plot.Color(blue=255, alpha=255), y]]
+        )
+    ]
 
 
 # Selections ###
