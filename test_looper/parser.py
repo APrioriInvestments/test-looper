@@ -4,7 +4,7 @@ import json
 from test_looper.repo_schema import Commit, RepoConfig
 from test_looper.test_schema import TestNode, Command, TestNodeDefinition
 from test_looper.tl_git import GIT
-from test_looper.utils import transaction, ServiceMixin
+from test_looper.utils.db import transaction, ServiceMixin
 
 
 class ParserService(ServiceMixin):

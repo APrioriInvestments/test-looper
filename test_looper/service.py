@@ -17,7 +17,7 @@ from test_looper.repo_schema import (
 )
 from test_looper import test_looper_schema
 from test_looper.service_schema import ArtifactStorageConfig, Config
-from test_looper.utils import ServiceMixin, transaction, view
+from test_looper.utils.db import ServiceMixin, transaction, view
 
 
 class LooperService(ServiceMixin):

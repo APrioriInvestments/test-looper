@@ -7,7 +7,7 @@ from object_database.database_connection import DatabaseConnection
 
 from test_looper.command import get_command_runner, TestRunnerResult
 from test_looper.test_schema import TestNode, Worker, TestResults, TestResult, TestNodeDefinition
-from test_looper.utils import transaction, ServiceMixin
+from test_looper.utils.db import transaction, ServiceMixin
 
 
 class DispatchService(ServiceMixin):

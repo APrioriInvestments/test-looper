@@ -1,6 +1,7 @@
 import time
 
 import object_database.web.cells as cells
+from object_database.web.cells.webgl_plot import Color
 from object_database import connect, ServiceBase
 from object_database.web.cells.webgl_plot import Plot
 
@@ -125,8 +126,10 @@ def plots_card():
     return cells.Card(
         cells.Subscribed(
             lambda: cells.WebglPlot(
-                lambda: Plot.create(
-                    x, y, lineWidth=10, color=(51, 117, 180, 0.8)
+                lambda: Plot(
+                ).withPoints(
+                    x=x, y=y, pointSize=10.0,
+                    color=["blue"], shape="square"
                 ).withBottomAxis(
                     label="tests"
                 ).withLeftAxis(
