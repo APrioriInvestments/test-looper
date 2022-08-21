@@ -9,6 +9,7 @@ from test_looper import test_looper_schema
 from test_looper.test_schema import TestResults
 from test_looper.repo_schema import Commit, Branch
 from test_looper.utils.plot import bar_plot
+from test_looper.utils.services import run_tests
 
 
 # globals
@@ -85,9 +86,10 @@ class TLService(ServiceBase):
 # I display test run resports #
 def test_results_table():
     column = ['id', 'name', 'success', 'startTime', 'executionTime']
-    results = [
-        tcr[0] for tcr in [tr.results for tr in TestResults.lookupAll()]
-    ]
+    results = []
+    for tr in TestResults.lookupAll():
+        for tcr in tr.results:
+            results.append(tcr)
     return cells.Card(
          cells.Scrollable(
              cells.Table(
@@ -119,9 +121,10 @@ def test_results_table_render_fun():
 
 # Plots & Graphs ###
 def plots_card():
-    results = [
-        tcr[0] for tcr in [tr.results for tr in TestResults.lookupAll()]
-    ]
+    results = []
+    for tr in TestResults.lookupAll():
+        for tcr in tr.results:
+            results.append(tcr)
     x = range(len(results))
     y = [r.executionTime/1000 for r in results]
     return cells.Card(
@@ -178,6 +181,15 @@ def selections_card():
                                         lambda i:_commit_setter(i)
                                     )
                                 )
+                            ) +
+                            cells.Button(
+                                cells.HCenter("run"),
+                                lambda: run_tests(
+                                    host='localhost',
+                                    port=8080,
+                                    token="TOKEN"
+                                ),
+                                style="primary",
                             )
                         )
                     ),
