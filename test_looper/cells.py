@@ -8,6 +8,7 @@ from object_database.web.cells.webgl_plot import Plot
 from test_looper import test_looper_schema
 from test_looper.test_schema import TestResults
 from test_looper.repo_schema import Commit, Branch
+from test_looper.utils.plot import bar_plot
 
 
 # globals
@@ -126,10 +127,8 @@ def plots_card():
     return cells.Card(
         cells.Subscribed(
             lambda: cells.WebglPlot(
-                lambda: Plot(
-                ).withPoints(
-                    x=x, y=y, pointSize=10.0,
-                    color=["blue"], shape="square"
+                lambda: bar_plot(
+                    x, y, width=0.2, color="blue"
                 ).withBottomAxis(
                     label="tests"
                 ).withLeftAxis(
