@@ -1,28 +1,9 @@
 #!/usr/bin/env python
 """Quick test of the test runner for a single repo"""
-import pathlib
-import uuid
 import click
-import shutil
 
-from object_database import connect
-
-from test_looper import test_looper_schema
-from test_looper.service import LooperService
-from test_looper.parser import ParserService
-from test_looper.runner import RunnerService, DispatchService
 from test_looper.test_schema import TestResults
-from test_looper.tl_git import GIT
-
-
-def init_test_repo():
-    # copy template repo and turn it into a git repo
-    tmp_path = pathlib.Path('/tmp') / str(uuid.uuid4())
-    dst_path = str(tmp_path / '_template_repo')
-    repo = str(pathlib.Path(__file__).parent / "tests" / "_template_repo")
-    shutil.copytree(repo, dst_path)
-    GIT().init_repo(dst_path)
-    return dst_path
+from test_looper.utils.services import run_tests
 
 
 @click.command()
@@ -30,32 +11,7 @@ def init_test_repo():
 @click.option('-p', '--port', default='8000')
 @click.option('-t', '--token', default='TOKEN')
 def main(host, port, token):
-    repo_path = init_test_repo()
-    odb = connect(host, port, token)
-    odb.subscribeToSchema(test_looper_schema)
-
-    # the idea here is that these different services
-    # implement their own event loops and could run
-    # in a distributed fashion as long as they're
-    # all interacting with the same ODB
-
-    # Register a repo and scan all branches for commits
-    looper = LooperService(odb)
-    looper.add_repo('template_repo', repo_path)
-    looper.scan_repo('template_repo', branch="*")
-
-    # Parse commits and create test plan
-    parser = ParserService(odb)
-    parser.parse_commits()
-
-    # create a dispatcher to assign TestNodes
-    dispatch = DispatchService(odb)
-    # register a worker
-    runner = RunnerService(odb, "tout seul")
-
-    dispatch.assign_nodes()  # this will assign it to the runner
-    runner.run_test()
-
+    odb = run_tests(host, port, token)
     with odb.view():
         for tr in TestResults.lookupAll():
             print(f'{tr.node.name} has {tr.node.testsDefined} tests defined')

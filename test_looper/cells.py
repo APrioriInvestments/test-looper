@@ -1,4 +1,5 @@
 import time
+import subprocess
 
 import object_database.web.cells as cells
 from object_database.web.cells.webgl_plot import Color
@@ -184,10 +185,10 @@ def selections_card():
                             ) +
                             cells.Button(
                                 cells.HCenter("run"),
-                                lambda: run_tests(
-                                    host='localhost',
-                                    port=8080,
-                                    token="TOKEN"
+                                lambda: subprocess.run(
+                                    ["python /root/daniel/test-looper/main.py",
+                                     "--port", "8090"
+                                     ]
                                 ),
                                 style="primary",
                             )
