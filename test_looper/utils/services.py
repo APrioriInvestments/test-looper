@@ -19,7 +19,6 @@ def init_test_repo():
     file_path = pathlib.Path(__file__)
     git_repo = git.Repo(file_path, search_parent_directories=True)
     repo_root = git_repo.git.rev_parse("--show-toplevel")
-
     repo = str(pathlib.Path(repo_root, "tests/_template_repo"))
     shutil.copytree(repo, dst_path)
     GIT().init_repo(dst_path)

@@ -47,6 +47,7 @@ class TLService(ServiceBase):
         while not shouldStop.is_set():
             # wake up every 100ms and look at the objects in the ODB.
             time.sleep(.1)
+            print("THIS IS HAPPENING")
 
             with self.db.transaction():
                 result = TestResults.lookupAll()
@@ -185,11 +186,7 @@ def selections_card():
                             ) +
                             cells.Button(
                                 cells.HCenter("run"),
-                                lambda: subprocess.run(
-                                    ["python /root/daniel/test-looper/main.py",
-                                     "--port", "8090"
-                                     ]
-                                ),
+                                lambda: None,
                                 style="primary",
                             )
                         )
