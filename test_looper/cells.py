@@ -47,7 +47,6 @@ class TLService(ServiceBase):
         while not shouldStop.is_set():
             # wake up every 100ms and look at the objects in the ODB.
             time.sleep(.1)
-            print("THIS IS HAPPENING")
 
             with self.db.transaction():
                 result = TestResults.lookupAll()
@@ -157,6 +156,7 @@ def plot_hover(x, y, screenRect):
 # Selections ###
 # Branches and Dropdowns
 def selections_card():
+    padding = cells.Padding(5)
     return cells.Highlighted(
         cells.Card(
             cells.SingleLineTextBox(
@@ -174,18 +174,29 @@ def selections_card():
                                     lambda i: branch_slot.set(i)
                                 )
                             ) +
-                            cells.FillSpace(
+                            padding * cells.FillSpace(
                                 cells.Subscribed(
                                     lambda: cells.Dropdown(
                                         "Git commit: " + str(
                                             commit_slot.get()['sha']),
-                                        [c.sha for c in Commit.lookupAll()],
+                                        [
+                                            c.sha for c in Commit.lookupAll(
+                                                name=branch_slot.get()
+                                            )[0].top_commit.parents
+                                        ],
                                         lambda i:_commit_setter(i)
                                     )
                                 )
                             ) +
-                            cells.Button(
+                            padding * cells.Button(
                                 cells.HCenter("run"),
+                                lambda: run_tests(
+                                    'localhost', '8080', 'TOKEN'
+                                ),
+                                style="primary",
+                            ) +
+                            padding * cells.Button(
+                                cells.HCenter("clear"),
                                 lambda: None,
                                 style="primary",
                             )
@@ -193,7 +204,7 @@ def selections_card():
                     ),
                     cells.Card(
                         cells.FillSpace(
-                            info_panel()
+                            cells.Subscribed(lambda: info_panel())
                         )
                     ),
                 ]
@@ -206,25 +217,19 @@ def selections_card():
 
 def info_panel():
     # TODO: sort out how to really deal with commits
-    commits = Commit.lookupAll()
-    commit = commits[0]
-    return cells.Center(
-        cells.Text(f'author name: {commit.author_name}') +
-        cells.Text(f'author_email: {commit.author_email}') +
-        cells.Text(f'summary: {commit.summary}') +
-        cells.Text(f'parents: {commit.parents}')
-    )
-    return cells.Subscribed(
-            lambda: cells.FillSpace(
-                cells.Text(
-                    "summary:\n" + str(commit_slot.get()["summary"])
-                ) +
-                cells.FillSpace(
-                    cells.Text(
-                        "author: " + str(commit_slot.get()["author_name"])
-                    )
+    sha = commit_slot.get()['sha']
+    commits = Commit.lookupAll(sha=sha)
+    if(commits and len(commits)):
+        commit = commits[0]
+        info = (cells.Text(f'author name: {commit.author_name}') +
+                cells.Text(f'author_email: {commit.author_email}') +
+                cells.Text(f'summary: {commit.summary}') +
+                cells.Text(f'parents: {commit.parents}')
                 )
-            )
+    else:
+        info = cells.Text("Please select a commit")
+    return cells.Center(
+        info
     )
 
 
