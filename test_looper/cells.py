@@ -16,16 +16,18 @@ from test_looper.utils.services import run_tests
 # globals
 # for now we let all the slots be global TODO?
 # TODO: much of this will be set by odb
-repo_slot = cells.Slot(
-    "https://github.com/APrioriInvestments/test-looper"
-)
-branch_slot = cells.Slot("none ")
-available_branches_slot = cells.Slot(
-    ["{}_branch_{}".format("test-looper", i) for i in range(10)]
-)
-available_commits_slot = cells.Slot(
-    ["commit_{}".format(i) for i in range(10)]
-)
+class defaultRepo:
+    name = "template_repo"
+
+
+repo_slot = cells.Slot(defaultRepo())
+
+
+class defaultBranch:
+    name = "none"
+
+
+branch_slot = cells.Slot(defaultBranch())
 commit_slot = cells.Slot(
     {
         "summary": "",
@@ -39,6 +41,7 @@ commit_slot = cells.Slot(
 class TLService(ServiceBase):
     def initialize(self):
         self.db.subscribeToSchema(test_looper_schema)
+        # set the corresponding repo_slot
 
     def doWork(self, shouldStop):
         while not shouldStop.is_set():
@@ -46,6 +49,7 @@ class TLService(ServiceBase):
             time.sleep(.1)
 
             with self.db.transaction():
+
                 result = TestResults.lookupAll()
                 for n in result:
                     print((n.name, n.testsDefined, n.needsMoreWork))
@@ -157,8 +161,10 @@ def selections_card():
     return cells.Highlighted(
         cells.Card(
             cells.SingleLineTextBox(
-                repo_slot.get(),
-                onEnter=lambda text: repo_slot.set(text)
+                repo_slot.get().name,
+                onEnter=lambda text: repo_slot.set(
+                    Repository.lookupOne(name=text)
+                )
             ) +
             cells.HorizontalSequence(
                 [
@@ -166,9 +172,11 @@ def selections_card():
                         cells.FillSpace(
                             cells.Subscribed(
                                 lambda: cells.Dropdown(
-                                    "Git branch: " + str(branch_slot.get()),
+                                    f'Git branch: {branch_slot.get().name}',
                                     [b.name for b in Branch.lookupAll()],
-                                    lambda i: branch_slot.set(i)
+                                    lambda i: branch_slot.set(
+                                        Branch.lookupOne()
+                                    )
                                 )
                             ) +
                             padding * cells.FillSpace(
@@ -214,9 +222,9 @@ def selections_card():
 def info_panel():
     # TODO: sort out how to really deal with commits
     sha = commit_slot.get()['sha']
-    commits = Commit.lookupAll(sha=sha)
-    if(commits and len(commits)):
-        commit = commits[0]
+    commit = Commit.lookupOne(sha=sha)
+    repo = Repository.lookupOne(name=repo_slot.get().name)
+    if(commit):
         info = (cells.Text(f'author name: {commit.author_name}') +
                 cells.Text(f'author_email: {commit.author_email}') +
                 cells.Text(f'summary: {commit.summary}') +
@@ -224,6 +232,8 @@ def info_panel():
                 )
     else:
         info = cells.Text("Please select a commit")
+    if(repo):
+        info += cells.Text(f'repository info: ${repo.config}')
     return cells.Center(
         info
     )
