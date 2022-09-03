@@ -8,7 +8,7 @@ from object_database.web.cells.webgl_plot import Plot
 
 from test_looper import test_looper_schema
 from test_looper.test_schema import TestResults
-from test_looper.repo_schema import Commit, Branch
+from test_looper.repo_schema import Commit, Branch, Repository
 from test_looper.utils.plot import bar_plot
 from test_looper.utils.services import run_tests
 
@@ -17,12 +17,9 @@ from test_looper.utils.services import run_tests
 # for now we let all the slots be global TODO?
 # TODO: much of this will be set by odb
 repo_slot = cells.Slot(
-    {
-        "name": "test-looper",
-        "url": "https://github.com/APrioriInvestments/test-looper"
-    }
+    "https://github.com/APrioriInvestments/test-looper"
 )
-branch_slot = cells.Slot("none")
+branch_slot = cells.Slot("none ")
 available_branches_slot = cells.Slot(
     ["{}_branch_{}".format("test-looper", i) for i in range(10)]
 )
@@ -160,8 +157,8 @@ def selections_card():
     return cells.Highlighted(
         cells.Card(
             cells.SingleLineTextBox(
-                repo_slot.get()["url"],
-                onEnter=lambda text: repo_slot.set({"url": text})
+                repo_slot.get(),
+                onEnter=lambda text: repo_slot.set(text)
             ) +
             cells.HorizontalSequence(
                 [
@@ -180,9 +177,8 @@ def selections_card():
                                         "Git commit: " + str(
                                             commit_slot.get()['sha']),
                                         [
-                                            c.sha for c in Commit.lookupAll(
-                                                name=branch_slot.get()
-                                            )[0].top_commit.parents
+                                            c.sha for c in [Branch.lookupOne(
+                                            ).top_commit]  # TODO
                                         ],
                                         lambda i:_commit_setter(i)
                                     )
