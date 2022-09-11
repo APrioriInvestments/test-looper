@@ -117,7 +117,7 @@ class CommitParent:
 @test_looper_schema.define
 class Branch:
     repo = Indexed(Repository)
-    name = str
+    name = Indexed(str)
 
     repoAndName = Index("repo", "name")
     top_commit = Commit

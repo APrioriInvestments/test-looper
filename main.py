@@ -5,7 +5,6 @@ import click
 from test_looper.test_schema import TestResults
 from test_looper.utils.services import run_tests
 
-
 @click.command()
 @click.option('-h', '--host', default='localhost')
 @click.option('-p', '--port', default='8000')

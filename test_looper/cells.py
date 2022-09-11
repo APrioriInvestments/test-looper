@@ -25,17 +25,15 @@ repo_slot = cells.Slot(defaultRepo())
 
 class defaultBranch:
     name = "none"
+    top_commit = None
 
 
 branch_slot = cells.Slot(defaultBranch())
-commit_slot = cells.Slot(
-    {
-        "summary": "",
-        "author_name": "",
-        "author_email": "",
-        "sha": ""
-     }
-)
+
+class defaultCommit:
+    sha = "none"
+
+commit_slot = cells.Slot(defaultCommit())
 
 
 class TLService(ServiceBase):
@@ -170,24 +168,19 @@ def selections_card():
                 [
                     cells.Card(
                         cells.FillSpace(
-                            cells.Subscribed(
+                            padding * cells.Subscribed(
                                 lambda: cells.Dropdown(
                                     f'Git branch: {branch_slot.get().name}',
                                     [b.name for b in Branch.lookupAll()],
-                                    lambda i: branch_slot.set(
-                                        Branch.lookupOne()
-                                    )
+                                    lambda i: _branch_setter(i)
                                 )
                             ) +
                             padding * cells.FillSpace(
                                 cells.Subscribed(
                                     lambda: cells.Dropdown(
                                         "Git commit: " + str(
-                                            commit_slot.get()['sha']),
-                                        [
-                                            c.sha for c in [Branch.lookupOne(
-                                            ).top_commit]  # TODO
-                                        ],
+                                            commit_slot.get().sha),
+                                        _commit_getter(),
                                         lambda i:_commit_setter(i)
                                     )
                                 )
@@ -221,19 +214,17 @@ def selections_card():
 
 def info_panel():
     # TODO: sort out how to really deal with commits
-    sha = commit_slot.get()['sha']
-    commit = Commit.lookupOne(sha=sha)
-    repo = Repository.lookupOne(name=repo_slot.get().name)
-    if(commit):
+    sha = commit_slot.get().sha
+    try:
+        commit = Commit.lookupOne(sha=sha)
+        repo = Repository.lookupOne(name=repo_slot.get().name)
         info = (cells.Text(f'author name: {commit.author_name}') +
                 cells.Text(f'author_email: {commit.author_email}') +
                 cells.Text(f'summary: {commit.summary}') +
                 cells.Text(f'parents: {commit.parents}')
                 )
-    else:
-        info = cells.Text("Please select a commit")
-    if(repo):
-        info += cells.Text(f'repository info: ${repo.config}')
+    except TypeError:
+        info = cells.Text("Please select a repo & commit")
     return cells.Center(
         info
     )
@@ -241,11 +232,19 @@ def info_panel():
 
 # random helper function: TODO remove
 # this is all for testing, will happen in ODB
-def _commit_setter(i):
-    data = {
-        "summary": "summary for commit {}".format(i),
-        "author_name": "author for commit {}".format(i),
-        "author_email": "email for commit {}".format(i),
-        "sha": i
-    }
-    commit_slot.set(data)
+def _commit_setter(sha):
+    commit_slot.set(Commit.lookupOne(sha=sha))
+
+def _commit_getter():
+    top_commit = branch_slot.get().top_commit
+    if top_commit is None:
+        return []
+    else:
+        commits = [c.sha for c in top_commit.parents]
+        commits.append(top_commit.sha)
+        return commits
+
+def _branch_setter(name):
+    branch = Branch.lookupOne(name=name)
+    branch_slot.set(branch)
+    commit_slot.set(branch.top_commit)
