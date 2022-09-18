@@ -7,7 +7,7 @@ from object_database import connect, ServiceBase
 from object_database.web.cells.webgl_plot import Plot
 
 from test_looper import test_looper_schema
-from test_looper.test_schema import TestResults
+from test_looper.test_schema import TestResults, TestNode
 from test_looper.repo_schema import Commit, Branch, Repository
 from test_looper.utils.plot import bar_plot
 from test_looper.utils.services import run_tests
@@ -31,9 +31,11 @@ class defaultBranch:
 branch_slot = cells.Slot(defaultBranch())
 
 class defaultCommit:
-    sha = "none"
+    sha = None
 
 commit_slot = cells.Slot(defaultCommit())
+
+test_results_slot = cells.Slot([])
 
 
 class TLService(ServiceBase):
@@ -85,23 +87,26 @@ class TLService(ServiceBase):
 # Reporting ###
 # I display test run resports #
 def test_results_table():
-    column = ['id', 'name', 'success', 'startTime', 'executionTime']
+    column = ['id', 'name', 'success', 'startTime', 'executionTime', 'numberOfRuns']
     results = []
-    for tr in TestResults.lookupAll():
-        for tcr in tr.results:
-            results.append(tcr)
+    commit_sha = commit_slot.get().sha
+    if commit_sha is not None:
+        results = test_results_getter(commit_sha)
     return cells.Card(
          cells.Scrollable(
-             cells.Table(
-                 colFun=lambda: column,
-                 rowFun=lambda: results,
-                 headerFun=lambda x: x,
-                 # rendererFun=lambda w, field: cells.Popover(
-                 #    f"{field} {w}", "title", "detail"),
-                 rendererFun=test_results_table_render_fun(),
-                 maxRowsPerPage=50,
-                 sortColumn="name",
-                 sortColumnAscending=True,
+             cells.Subscribed(
+                 lambda:
+                    cells.Table(
+                        colFun=lambda: column,
+                        rowFun=lambda: results,
+                        headerFun=lambda x: x,
+                        # rendererFun=lambda w, field: cells.Popover(
+                        #    f"{field} {w}", "title", "detail"),
+                        rendererFun=test_results_table_render_fun(),
+                        maxRowsPerPage=50,
+                        sortColumn="name",
+                        sortColumnAscending=True,
+                    )
              )
          ),
          header="Test reporting",
@@ -113,18 +118,22 @@ def test_results_table_render_fun():
     return lambda result, col: (
         result.testId if col == 'id' else
         result.testName if col == 'name' else
-        result.success if col == 'success' else
+        cells.Text(result.success, text_color="green") if col == 'success' and result.success else
+        cells.Text(result.success, text_color="red") if col == 'success' else
         result.startTime if col == 'startTime' else
-        result.executionTime
+        result.executionTime if col == 'executionTime' else
+        cells.ContextMenu(
+            cells.Text(1),
+            cells.MenuItem("Increment", lambda: none),
+        ) ## TODO
     )
-
 
 # Plots & Graphs ###
 def plots_card():
     results = []
-    for tr in TestResults.lookupAll():
-        for tcr in tr.results:
-            results.append(tcr)
+    commit_sha = commit_slot.get().sha
+    if commit_sha is not None:
+        results = test_results_getter(commit_sha)
     x = range(len(results))
     y = [r.executionTime/1000 for r in results]
     return cells.Card(
@@ -194,7 +203,7 @@ def selections_card():
                             ) +
                             padding * cells.Button(
                                 cells.HCenter("clear"),
-                                lambda: None,
+                                lambda: _clear_data(),
                                 style="primary",
                             )
                         )
@@ -221,7 +230,8 @@ def info_panel():
         info = (cells.Text(f'author name: {commit.author_name}') +
                 cells.Text(f'author_email: {commit.author_email}') +
                 cells.Text(f'summary: {commit.summary}') +
-                cells.Text(f'parents: {commit.parents}')
+                cells.Text(f'parents: {commit.parents}') +
+                cells.Text(f'repo: {repo.config}')
                 )
     except TypeError:
         info = cells.Text("Please select a repo & commit")
@@ -229,6 +239,12 @@ def info_panel():
         info
     )
 
+
+def _clear_data():
+    repo_slot.set(defaultRepo())
+    branch_slot.set(defaultBranch())
+    commit_slot.set(defaultCommit())
+    test_results_slot.set([])
 
 # random helper function: TODO remove
 # this is all for testing, will happen in ODB
@@ -245,6 +261,20 @@ def _commit_getter():
         return commits
 
 def _branch_setter(name):
+    # TODO This should look up with branc and repo name
     branch = Branch.lookupOne(name=name)
     branch_slot.set(branch)
     commit_slot.set(branch.top_commit)
+
+def _branch_getter():
+    return [b.name for b in Branch.lookupAll()],
+
+def test_results_getter(commit_sha):
+    results = []
+    commit = commit_slot.get()
+    nodes = TestNode.lookupAll(commit=commit)
+    for n in nodes:
+        for tr in TestResults.lookupAll(node=n):
+            for tcr in tr.results:
+                results.append(tcr)
+    return results

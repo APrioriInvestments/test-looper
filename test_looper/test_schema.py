@@ -49,6 +49,7 @@ TestNodeDefinition = Alternative(
 class TestNode:
     commit = Indexed(Commit)
     name = str
+    runs = int
 
     commitAndName = Index('commit', 'name')
 
