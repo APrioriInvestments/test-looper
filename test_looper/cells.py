@@ -37,6 +37,8 @@ commit_slot = cells.Slot(defaultCommit())
 
 test_results_slot = cells.Slot([])
 
+run_slot = cells.Slot(1)
+
 
 class TLService(ServiceBase):
     def initialize(self):
@@ -123,10 +125,37 @@ def test_results_table_render_fun():
         result.startTime if col == 'startTime' else
         result.executionTime if col == 'executionTime' else
         cells.ContextMenu(
-            cells.Text(1),
-            cells.MenuItem("Increment", lambda: none),
-        ) ## TODO
+            cells.Text(_run_getter(results.testId), text_color="blue"),
+            cells.Dropdown(
+                str(result.runs),
+                range(100),
+                lambda i: _update_run(result.testId, i),
+            )
+        )
     )
+
+def _run_getter(testId):
+    commit = commit_slot.get()
+    nodes = TestNode.lookupAll(commit=commit)
+    for n in nodes:
+        for tr in TestResults.lookupAll(node=n):
+            for tcr in tr.results:
+                if tcr.testId == test_id:
+                    return n.runs
+
+# TODO: does it make sense to update the corresponding node?
+# seems like we should be updating the specific test, but for that
+# we want a schema where each test is represented by a node
+def _update_run(test_id, i):
+    commit = commit_slot.get()
+    nodes = TestNode.lookupAll(commit=commit)
+    for n in nodes:
+        for tr in TestResults.lookupAll(node=n):
+            for tcr in tr.results:
+                if tcr.testId == test_id:
+                    n.runs = i
+                    return n
+
 
 # Plots & Graphs ###
 def plots_card():
