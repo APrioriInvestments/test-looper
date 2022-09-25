@@ -36,18 +36,19 @@ def run_tests(host, port, token):
     # all interacting with the same ODB
 
     # Register a repo and scan all branches for commits
-    looper = LooperService(odb)
+    repo_url = "/tmp/test_looper/repos"
+    looper = LooperService(odb, repo_url=repo_url)
     looper.add_repo('template_repo', repo_path)
     looper.scan_repo('template_repo', branch="*")
 
     # Parse commits and create test plan
-    parser = ParserService(odb)
+    parser = ParserService(odb, repo_url=repo_url)
     parser.parse_commits()
 
     # create a dispatcher to assign TestNodes
-    dispatch = DispatchService(odb)
+    dispatch = DispatchService(odb, repo_url=repo_url)
     # register a worker
-    runner = RunnerService(odb, "tout seul")
+    runner = RunnerService(odb, repo_url=repo_url, worker_id="tout seul")
 
     dispatch.assign_nodes()  # this will assign it to the runner
     runner.run_test()

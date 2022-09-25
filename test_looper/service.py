@@ -1,4 +1,5 @@
 # The main service class that will run this TestLooper installation
+import pathlib
 from typing import Optional, Union
 from urllib.parse import urlparse
 
@@ -15,7 +16,7 @@ from test_looper.repo_schema import (
 from test_looper.service_schema import ArtifactStorageConfig, Config
 
 from test_looper.tl_git import GIT
-from test_looper.utils.db import ServiceMixin, transaction, view
+from test_looper.utils.db import ServiceMixin, transaction
 
 
 class LooperService(ServiceMixin):
@@ -26,7 +27,7 @@ class LooperService(ServiceMixin):
     def __init__(
         self,
         db: DatabaseConnection,
-        repo_url: str = None,
+        repo_url: str,
         temp_url: str = None,
         artifact_store: ArtifactStorageConfig = ArtifactStorageConfig,
     ):
@@ -35,7 +36,7 @@ class LooperService(ServiceMixin):
         ----------
         repo_url: str
             The root url where we're going to put cloned repos
-        temp_url: str
+        temp_url: str or Path-like
             The root url for temporary data
         artifact_store: Artifactstorageconfig
             The storage for build and test artifacts
@@ -43,7 +44,7 @@ class LooperService(ServiceMixin):
             ODB connection
         """
         super(LooperService, self).__init__(db, repo_url)
-        self.temp_url = temp_url
+        self.temp_url = temp_url or pathlib.Path("/tmp")
         self.artifact_store = artifact_store
 
     def start(self):
