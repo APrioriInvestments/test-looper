@@ -25,8 +25,8 @@ def init_test_repo():
     return dst_path
 
 
-def run_tests(host, port, token):
-    repo_path = init_test_repo()
+def run_tests(host, port, token, repo_url):
+    # repo_path = init_test_repo()
     odb = connect(host, port, token)
     odb.subscribeToSchema(test_looper_schema)
 
@@ -36,9 +36,8 @@ def run_tests(host, port, token):
     # all interacting with the same ODB
 
     # Register a repo and scan all branches for commits
-    repo_url = "/tmp/test_looper/repos"
     looper = LooperService(odb, repo_url=repo_url)
-    looper.add_repo('template_repo', repo_path)
+    looper.add_repo('template_repo', repo_url)
     looper.scan_repo('template_repo', branch="*")
 
     # Parse commits and create test plan

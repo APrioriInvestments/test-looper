@@ -16,8 +16,11 @@ from test_looper.utils.services import run_tests
 # globals
 # for now we let all the slots be global TODO?
 # TODO: much of this will be set by odb
+default_repo = "enter_repo_name"
+
+
 class defaultRepo:
-    name = "template_repo"
+    name = default_repo
 
 
 repo_slot = cells.Slot(defaultRepo())
@@ -43,7 +46,6 @@ run_slot = cells.Slot(1)
 class TLService(ServiceBase):
     def initialize(self):
         self.db.subscribeToSchema(test_looper_schema)
-        # set the corresponding repo_slot
 
     def doWork(self, shouldStop):
         while not shouldStop.is_set():
@@ -125,16 +127,16 @@ def test_results_table_render_fun():
         result.startTime if col == 'startTime' else
         result.executionTime if col == 'executionTime' else
         cells.ContextMenu(
-            cells.Text(_run_getter(results.testId), text_color="blue"),
+            cells.Text(_run_getter(result.testId), text_color="blue"),
             cells.Dropdown(
-                str(result.runs),
+                "TEMP",
                 range(100),
                 lambda i: _update_run(result.testId, i),
             )
         )
     )
 
-def _run_getter(testId):
+def _run_getter(test_id):
     commit = commit_slot.get()
     nodes = TestNode.lookupAll(commit=commit)
     for n in nodes:
@@ -198,9 +200,7 @@ def selections_card():
         cells.Card(
             cells.SingleLineTextBox(
                 repo_slot.get().name,
-                onEnter=lambda text: repo_slot.set(
-                    Repository.lookupOne(name=text)
-                )
+                onEnter=lambda text: _repo_setter(text)
             ) +
             cells.HorizontalSequence(
                 [
@@ -209,7 +209,7 @@ def selections_card():
                             padding * cells.Subscribed(
                                 lambda: cells.Dropdown(
                                     f'Git branch: {branch_slot.get().name}',
-                                    [b.name for b in Branch.lookupAll()],
+                                    _branch_getter(),
                                     lambda i: _branch_setter(i)
                                 )
                             ) +
@@ -290,18 +290,35 @@ def _commit_getter():
         return commits
 
 def _branch_setter(name):
-    # TODO This should look up with branc and repo name
-    branch = Branch.lookupOne(name=name)
-    branch_slot.set(branch)
-    commit_slot.set(branch.top_commit)
+    # TODO This should look up with branch and repo name
+    repo = repo_slot.get();
+    if repo is None or isinstance(repo, defaultRepo):
+        branch_slot.set(defaultBranch())
+        commit_slot.set(defaultCommit())
+        test_results_slot.set([])
+    else:
+        branch = Branch.lookupOne(repoAndName=(repo, name))
+        branch_slot.set(branch)
+        commit_slot.set(branch.top_commit)
 
 def _branch_getter():
-    return [b.name for b in Branch.lookupAll()],
+    repo = repo_slot.get();
+    if repo is None or isinstance(repo, defaultRepo):
+        return []
+    return [b.name for b in Branch.lookupAll(repo=repo)]
+
+def _repo_setter(name):
+    try:
+        repo = Repository.lookupOne(name=name)
+        repo_slot.set(repo)
+    except TypeError:
+        _clear_data()
 
 def test_results_getter(commit_sha):
     results = []
     commit = commit_slot.get()
     nodes = TestNode.lookupAll(commit=commit)
+    # nodes = TestNode.lookupAll()
     for n in nodes:
         for tr in TestResults.lookupAll(node=n):
             for tcr in tr.results:
