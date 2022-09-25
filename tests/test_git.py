@@ -1,5 +1,6 @@
 import json
 import os
+import pathlib
 
 import pytest
 
@@ -35,6 +36,13 @@ class TestGit:
     @pytest.mark.knownfailure
     def test_fail(self):
         assert 0 == 1
+
+    def test_clone_repo(self, tmp_path: pathlib.Path):
+        url = "https://github.com/aprioriinvestments/test-looper"
+        clone_path = tmp_path / 'test-looper'
+        GIT().clone(url, str(clone_path), all_branches=True)
+        assert clone_path.exists()
+        GitPythonRepo(clone_path)  # raises if it's not a git repository
 
     @classmethod
     def teardown_class(cls):

@@ -5,12 +5,14 @@ import click
 from test_looper.test_schema import TestResults
 from test_looper.utils.services import run_tests
 
+
 @click.command()
 @click.option('-h', '--host', default='localhost')
 @click.option('-p', '--port', default='8000')
 @click.option('-t', '--token', default='TOKEN')
 def main(host, port, token):
     odb = run_tests(host, port, token)
+
     with odb.view():
         for tr in TestResults.lookupAll():
             print(f'{tr.node.name} has {tr.node.testsDefined} tests defined')

@@ -12,13 +12,14 @@ from test_parser import parser_service, template_repo
 @pytest.fixture
 def dispatcher(odb_conn: DatabaseConnection,
                tl_config: dict) -> DispatchService:
-    return DispatchService(odb_conn)
+    return DispatchService(odb_conn, tl_config["repo_url"])
 
 
 @pytest.fixture
 def runner(odb_conn: DatabaseConnection,
            tl_config: dict) -> RunnerService:
-    return RunnerService(odb_conn, "tout seul")
+    return RunnerService(odb_conn, repo_url=tl_config["repo_url"],
+                         worker_id="tout seul")
 
 
 def test_assign_nodes(parser_service, dispatcher, runner):
@@ -57,7 +58,6 @@ def test_run_test(parser_service, dispatcher, runner):
     parser_service.parse_commits()
     with runner.db.transaction():
         node = TNode.lookupUnique()
-        name = node.name
         assert node.executionResultSummary is None
         node.isAssigned = True
         w = Worker.lookupOne(workerId=runner.worker_id)

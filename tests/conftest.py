@@ -1,13 +1,9 @@
-import os
 import pytest
-import shutil
-
 from object_database.persistence import InMemoryPersistence
 from object_database.tcp_server import TcpServer, connect, DatabaseConnection
 from object_database.util import sslContextFromCertPathOrNone
 
 from test_looper import test_looper_schema
-
 # TODO read this from test configuration file
 from test_looper.service_schema import ArtifactStorageConfig, Config
 
