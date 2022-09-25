@@ -1,23 +1,22 @@
 # The main service class that will run this TestLooper installation
-import os
-import click
-from typing import Dict, Optional, Union
+import pathlib
+from typing import Optional, Union
 from urllib.parse import urlparse
-import uuid
 
 from object_database.database_connection import DatabaseConnection
-from test_looper.tl_git import GIT
+
+from test_looper import test_looper_schema
 from test_looper.repo_schema import (
     Branch,
     Commit,
     CommitParent,
     Repository,
     RepoConfig,
-    RepoClone,
 )
-from test_looper import test_looper_schema
 from test_looper.service_schema import ArtifactStorageConfig, Config
-from test_looper.utils.db import ServiceMixin, transaction, view
+
+from test_looper.tl_git import GIT
+from test_looper.utils.db import ServiceMixin, transaction
 
 
 class LooperService(ServiceMixin):
@@ -28,7 +27,7 @@ class LooperService(ServiceMixin):
     def __init__(
         self,
         db: DatabaseConnection,
-        repo_url: str = None,
+        repo_url: str,
         temp_url: str = None,
         artifact_store: ArtifactStorageConfig = ArtifactStorageConfig,
     ):
@@ -37,16 +36,15 @@ class LooperService(ServiceMixin):
         ----------
         repo_url: str
             The root url where we're going to put cloned repos
-        temp_url: str
+        temp_url: str or Path-like
             The root url for temporary data
         artifact_store: Artifactstorageconfig
             The storage for build and test artifacts
         db: DatabaseConnection
             ODB connection
         """
-        super(LooperService, self).__init__(db)
-        self.repo_url = repo_url
-        self.temp_url = temp_url
+        super(LooperService, self).__init__(db, repo_url)
+        self.temp_url = temp_url or pathlib.Path("/tmp")
         self.artifact_store = artifact_store
 
     def start(self):
@@ -81,6 +79,7 @@ class LooperService(ServiceMixin):
         config: Union[str, RepoConfig],
         default_scheme="ssh",
         private_key=bytes,
+        on_exist="ignore"
     ) -> RepoConfig:
         """
         Parameters
@@ -94,6 +93,9 @@ class LooperService(ServiceMixin):
             (by default this works for git@github.com:org/repo style url)
         private_key: bytes
             The SSH key
+        on_exist: str, default "ignore"
+            "ignore", "error", "overwrite" => what to do if the name already
+            exists
 
         yields
         -------
@@ -102,112 +104,41 @@ class LooperService(ServiceMixin):
         if isinstance(config, str):
             config = parse_repo_url(config, default_scheme, private_key)
         repo = Repository.lookupAny(name=name)
-        # TODO: revist this, maybe the repo should be deleted first if found
-        # if repo:
-        #    assert repo.config == config
-        # else:
-        #    repo = Repository(name=name, config=config)
         if not repo:
             repo = Repository(name=name, config=config)
+        else:
+            if on_exist == "error":
+                raise ValueError(f"Repo {name} is already registered")
+            elif on_exist == "overwrite":
+                repo.delete()
+                repo = Repository(name=name, config=config)
         return repo.config
-
-    @view
-    def get_repo_config(self, name: str) -> Optional[RepoConfig]:
-        repo = Repository.lookupAny(name=name)
-        if repo is not None:
-            return repo.config
-
-    @view
-    def get_all_repos(self) -> Dict[str, RepoConfig]:
-        return {repo.name: repo.config for repo in Repository.lookupAll()}
-
-    def clone_repo(
-        self, name: str, clone_name: str = None
-    ) -> (str, RepoConfig):
-        """
-        Clone a registered repo with the given name to this service's
-        repo storage. A RepoClone link will be added between the remote
-        repo storage. A RepoClone link will be added between the remote
-        and local clone
-
-        Parameters
-        ----------
-        name: str
-            The odb name of the repo to be cloned
-        clone_name: str, default None
-            The odb name of the clone. If not provided, then it will
-            be <name>-clone-<uuid>
-
-        Returns
-        -------
-        (clone_name, clone_config): (str, RepoConfig)
-        """
-        if clone_name is None:
-            clone_name = f"{name}-clone-{str(uuid.uuid4())}"
-        with self.db.view():
-            clone_repo = Repository.lookupAny(name=clone_name)
-            if clone_repo is not None:
-                return clone_repo.name, clone_repo.config
-
-        clone_path = os.path.join(self.repo_url, clone_name)
-        to_clone = self.get_repo_config(name)
-        if to_clone is None:
-            raise KeyError(f"Repo {name} is not registered in odb")
-        _create_clone(to_clone, clone_path)
-        with self.db.transaction():
-            clone_conf = RepoConfig.Local(path=clone_path)
-            clone_repo = Repository(name=clone_name, config=clone_conf)
-            orig_repo = Repository.lookupOne(name=name)
-            RepoClone(remote=orig_repo, clone=clone_repo)
-            return clone_name, clone_repo.config
-
-    @view
-    def get_remote(self, clone_name: str) -> (str, RepoConfig):
-        """
-        Get the remote repo that originated the local repo with the given
-        clone_name
-        """
-        clone = Repository.lookupOne(name=clone_name)
-        remote = RepoClone.lookupOne(clone=clone).remote
-        return remote.name, remote.config
 
     @transaction
     def scan_repo(self, repo_name: str, branch: Optional[str]):
         """
-        Scan the given repo / branch and add Branches/Commits etc to odb.
-
-        Parameters
-        ----------
-        repo_name: str
-            Name of the local odb repository to scan
-        branch: str or list-like of str, default None
-            If None then just the default branch is scanned.
-            If it's a str then assume it's branch name
-            If the string is '*' then scan all branches
+        Scan the specified repo. If no branch is specified, only the
+        default branch is scanned.
         """
         repo = Repository.lookupOne(name=repo_name)
-        if not isinstance(repo.config, RepoConfig.Local):
-            repo = RepoClone.lookupOne(remote=repo).clone
+        if repo is None:
+            raise KeyError(f"Repository {repo_name} is not registered")
+        is_found, clone_path = self.get_clone(repo)
+        if not is_found:
+            _create_clone(repo.config, clone_path)
         g = GIT()
         if branch is None:
-            to_scan = [g.get_head(repo.config.path)]
+            to_scan = [g.get_head(clone_path)]
         elif branch == "*":
-            to_scan = g.list_branches(repo.config.path)
+            to_scan = g.list_branches(clone_path)
         elif isinstance(branch, str):
-            to_scan = [g.get_branch(repo.config.path, branch)]
+            to_scan = [g.get_branch(clone_path, branch)]
         elif isinstance(branch, (list, tuple)):
-            to_scan = [g.get_branch(repo.config.path, b) for b in branch]
+            to_scan = [g.get_branch(clone_path, b) for b in branch]
         else:
             raise NotImplementedError()
         for b in to_scan:
             parse_branch(repo, b)
-
-
-def _create_clone(conf: RepoConfig, clone_path):
-    if isinstance(conf, RepoConfig.Https):
-        GIT().clone(conf.url, clone_path, all_branches=True)
-    else:
-        raise NotImplementedError("Only public https cloning supported")
 
 
 def parse_repo_url(
@@ -262,9 +193,9 @@ def parse_commits(repo: Repository, commit: "git.Commit") -> Commit:
 
     Parameters
     ----------
-    repo: RepoConfig.Local
-        The local repo whose active branch we want to parse commits from
-    head: str
+    repo: Repository
+        The (remote) repo we want associate commits with
+    commit: git.Commit (GitPython)
         The commit SHA where we want to start from (usually tip of a branch)
 
     Returns
@@ -299,20 +230,10 @@ def make_commit(repo, c):
     )
 
 
-@click.command()
-@click.option('-h', '--host', default='localhost')
-@click.option('-p', '--port', default='8000')
-@click.option('-t', '--token', default='TOKEN')
-def main(host, port, token):
-    odb = connect(host, port, token)
-    service = LooperService(odb)
-    service.add_repo(
-        "test-looper", "https://github.com//aprioriinvestments/test-looper"
-    )
-    service.clone_repo("test-looper", "my-test-looper-clone")
-    service.scan_repo("my-test-looper-clone", branch="*")
-
-
-if __name__ == '__main__':
-    from object_database import connect
-    main()
+def _create_clone(conf: RepoConfig, clone_path):
+    if isinstance(conf, RepoConfig.Https):
+        GIT().clone(conf.url, clone_path, all_branches=True)
+    elif isinstance(conf, RepoConfig.Local):
+        GIT().clone(conf.path, clone_path, all_branches=True)
+    else:
+        raise NotImplementedError("Only public https cloning supported")

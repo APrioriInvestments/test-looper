@@ -24,7 +24,7 @@ def parser_service(odb_conn: DatabaseConnection,
                    template_repo: str,
                    tl_config: dict) -> ParserService:
     setup_repo(odb_conn, template_repo)
-    return ParserService(odb_conn)
+    return ParserService(odb_conn, tl_config["repo_url"])
 
 
 def setup_repo(odb_conn: DatabaseConnection, template_repo: str):
