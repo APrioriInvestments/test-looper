@@ -198,9 +198,14 @@ def selections_card():
     padding = cells.Padding(5)
     return cells.Highlighted(
         cells.Card(
-            cells.SingleLineTextBox(
-                repo_slot.get().name,
-                onEnter=lambda text: _repo_setter(text)
+            cells.HorizontalSequence(
+                [
+                    cells.SingleLineTextBox(
+                        repo_slot.get().name,
+                        onEnter=lambda text: _repo_setter(text)
+                    ),
+                    lambda: cells.Octicon("stop", color="red")
+                ]
             ) +
             cells.HorizontalSequence(
                 [
@@ -252,18 +257,21 @@ def selections_card():
 
 def info_panel():
     # TODO: sort out how to really deal with commits
-    sha = commit_slot.get().sha
-    try:
-        commit = Commit.lookupOne(sha=sha)
-        repo = Repository.lookupOne(name=repo_slot.get().name)
+    commit = commit_slot.get()
+    if commit is None or isinstance(commit, defaultCommit):
+        info = cells.Text("Please select a repo & commit")
+    else:
+        nodes = [n.commit.sha for n in TestNode.lookupAll(commit=commit)]
+        all_nodes = [n.commit.sha for n in TestNode.lookupAll()]
+        repo = repo_slot.get()
         info = (cells.Text(f'author name: {commit.author_name}') +
                 cells.Text(f'author_email: {commit.author_email}') +
                 cells.Text(f'summary: {commit.summary}') +
                 cells.Text(f'parents: {commit.parents}') +
-                cells.Text(f'repo: {repo.config}')
+                cells.Text(f'repo: {repo.config}') +
+                cells.Text(f'test nodes: {nodes}') +
+                cells.Text(f'all nodes: {all_nodes}')
                 )
-    except TypeError:
-        info = cells.Text("Please select a repo & commit")
     return cells.Center(
         info
     )
@@ -317,10 +325,13 @@ def _repo_setter(name):
 def test_results_getter(commit_sha):
     results = []
     commit = commit_slot.get()
-    nodes = TestNode.lookupAll(commit=commit)
-    # nodes = TestNode.lookupAll()
-    for n in nodes:
-        for tr in TestResults.lookupAll(node=n):
-            for tcr in tr.results:
-                results.append(tcr)
+    # TODO: why are there multiple commits with the same sha
+    commits = Commit.lookupAll(sha=commit.sha)
+    for c in commits:
+        nodes = TestNode.lookupAll(commit=c)
+        # nodes = TestNode.lookupAll()
+        for n in nodes:
+            for tr in TestResults.lookupAll(node=n):
+                for tcr in tr.results:
+                    results.append(tcr)
     return results
