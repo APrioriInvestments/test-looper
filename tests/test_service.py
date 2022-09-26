@@ -77,6 +77,9 @@ def test_parse_commit(odb_conn: DatabaseConnection, tl_repo: Repo):
         repo = Repository(config=conf, name="test_parse_commit")
         parse_commits(repo, head)
         _check_tree(head, Commit.lookupOne(sha=head.hexsha))
+        parse_commits(repo, head)
+        all_commits = Commit.lookupAll()
+        assert len(all_commits) == len(set([c.sha for c in all_commits]))
 
 
 def test_parse_branch(odb_conn: DatabaseConnection, tl_repo: Repo):

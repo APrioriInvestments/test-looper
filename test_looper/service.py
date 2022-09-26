@@ -220,6 +220,9 @@ def parse_commits(repo: Repository, commit: "git.Commit") -> Commit:
 
 
 def make_commit(repo, c):
+    odb_commit = Commit.lookupAny(sha=c.hexsha)
+    if odb_commit is not None:
+        return odb_commit
     return Commit(
         repo=repo,
         sha=c.hexsha,
