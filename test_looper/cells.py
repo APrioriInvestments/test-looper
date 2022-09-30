@@ -204,7 +204,7 @@ def selections_card():
                         repo_slot.get().name,
                         onEnter=lambda text: _repo_setter(text)
                     ),
-                    lambda: cells.Octicon("stop", color="red")
+                    lambda: _repo_octicon(padding)
                 ]
             ) +
             cells.HorizontalSequence(
@@ -322,16 +322,19 @@ def _repo_setter(name):
     except TypeError:
         _clear_data()
 
+def _repo_octicon(padding):
+    octicon = cells.Octicon("shield", color="green")
+    if isinstance(repo_slot.get(), defaultRepo):
+        octicon = cells.Octicon("stop", color="red")
+    return padding * octicon
+
 def test_results_getter(commit_sha):
     results = []
     commit = commit_slot.get()
-    # TODO: why are there multiple commits with the same sha
-    commits = Commit.lookupAll(sha=commit.sha)
-    for c in commits:
-        nodes = TestNode.lookupAll(commit=c)
-        # nodes = TestNode.lookupAll()
-        for n in nodes:
-            for tr in TestResults.lookupAll(node=n):
-                for tcr in tr.results:
-                    results.append(tcr)
+    nodes = TestNode.lookupAll(commit=commit)
+    # nodes = TestNode.lookupAll()
+    for n in nodes:
+        for tr in TestResults.lookupAll(node=n):
+            for tcr in tr.results:
+                results.append(tcr)
     return results
