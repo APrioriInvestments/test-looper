@@ -47,9 +47,9 @@ def test_scan_repo(odb_conn: DatabaseConnection, tl_config: dict):
     service.add_repo(
         "test-looper", "https://github.com/aprioriinvestments/test-looper"
     )
-    service.scan_repo("test-looper", branch="*")
-    with odb_conn.view():
+    with odb_conn.transaction():
         repo = Repository.lookupOne(name="test-looper")
+        service.scan_repo(repo, branch="*")
         is_found, clone_path = service.get_clone(repo)
         assert is_found
         for b in GIT().list_branches(clone_path):

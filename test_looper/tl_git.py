@@ -2,6 +2,7 @@
 # with GIT, github and related utilities
 
 import os
+import uuid
 import subprocess
 import sys
 import requests
@@ -48,12 +49,17 @@ class GIT:
         if not all_branches:
             return os.system(f"git clone {repo} {directory}")
         else:
+            # TODO clean this up and make thread-safe
+            tmp_dir = f"/tmp/{str(uuid.uuid4())}"
+            os.makedirs(tmp_dir, exist_ok=True)
             os.makedirs(directory, exist_ok=True)
             cmd = (
-                f"cd {directory} && "
+                f"cd {tmp_dir} && "
                 f"git clone --mirror {repo} .git && "
                 "git config --bool core.bare false && "
-                "git reset --hard"
+                "git reset --hard && "
+                f"rm -rf {directory} && "
+                f"mv {tmp_dir} {directory}"
             )
             return subprocess.check_output(cmd, shell=True)
 

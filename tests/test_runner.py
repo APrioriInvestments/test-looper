@@ -3,28 +3,26 @@
 import pytest
 from object_database.database_connection import DatabaseConnection
 
-from test_looper.runner import RunnerService, DispatchService
+from test_looper.runner import RunnerService
 from test_looper.test_schema import TestNode as TNode, TestResults as TResults
 from test_looper.test_schema import Worker
+
 from test_parser import parser_service, template_repo
-
-
-@pytest.fixture
-def dispatcher(odb_conn: DatabaseConnection,
-               tl_config: dict) -> DispatchService:
-    return DispatchService(odb_conn, tl_config["repo_url"])
 
 
 @pytest.fixture
 def runner(odb_conn: DatabaseConnection,
            tl_config: dict) -> RunnerService:
-    return RunnerService(odb_conn, repo_url=tl_config["repo_url"],
-                         worker_id="tout seul")
+    service = RunnerService(odb_conn, None, None,
+                            repo_url=tl_config["repo_url"],
+                            worker_id="tout seul")
+    service._init_worker()
+    return service
 
 
-def test_assign_nodes(parser_service, dispatcher, runner):
+def test_assign_nodes(parser_service, runner):
     parser_service.parse_commits()
-    with dispatcher.db.view():
+    with parser_service.db.view():
         nodes = TNode.lookupAll()
         for n in nodes:
             assert n.needsMoreWork
@@ -32,9 +30,9 @@ def test_assign_nodes(parser_service, dispatcher, runner):
         w = Worker.lookupUnique()
         assert w.currentAssignment is None
 
-    dispatcher.assign_nodes()
+    parser_service.assign_nodes()
 
-    with dispatcher.db.view():
+    with parser_service.db.view():
         active_node = None
         nodes = TNode.lookupAll()
         total_assigned = 0
@@ -54,7 +52,7 @@ def test_heartbeat(runner):
     assert ts2 > ts
 
 
-def test_run_test(parser_service, dispatcher, runner):
+def test_run_test(parser_service, runner):
     parser_service.parse_commits()
     with runner.db.transaction():
         node = TNode.lookupUnique()

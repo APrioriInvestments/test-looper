@@ -4,39 +4,46 @@ import threading
 import time
 import uuid
 
+from object_database import ServiceBase, Reactor
 from object_database.database_connection import DatabaseConnection
 
+from test_looper import test_looper_schema
 from test_looper.command import get_command_runner, TestRunnerResult
+from test_looper.repo_schema import Repository
 from test_looper.test_schema import TestNode, Worker, TestResults, TestResult, TestNodeDefinition
-
 from test_looper.tl_git import GIT
-from test_looper.utils.db import transaction, ServiceMixin
+from test_looper.utils.db import transaction
 
 
-class DispatchService(ServiceMixin):
-    """assigns tests to workers"""
+class RunnerService(ServiceBase):
+    """
+    A RunnerService will run on a test-looper worker. It will look in odb for
+    assigned TestNode's and execute the tests that are assigned to it. Once
+    completed it will put TestResults back in ODB then go back to looking for
+    assignments.
 
-    def start(self):
-        self.start_threadloop(self.assign_nodes)
+    Once every 10s, this runner should send a heartbeat (to ODB), so that bad
+    workers can be killed by the overall system
+    """
 
-    @transaction
-    def assign_nodes(self):
-        """Find TestNode's the needs more work and assign them to workers"""
-        nodes = [n for n in TestNode.lookupAll(needsMoreWork=True) if not n.isAssigned]
-        workers = Worker.lookupAll(currentAssignment=None)
-        if len(nodes) > 0 and len(workers) > 0:
-            self.logger.debug(f"Assigning {len(nodes)} TestNodes to {len(workers)} available workers")
-        for i in range(min(len(nodes), len(workers))):
-            workers[i].currentAssignment = nodes[i]
-            nodes[i].isAssigned = True
-
-
-class RunnerService(ServiceMixin):
-    """Runs tests"""
-
-    def __init__(self, db: DatabaseConnection, repo_url: str, worker_id: str):
-        super(RunnerService, self).__init__(db, repo_url)
+    def __init__(self,
+                 db: DatabaseConnection,
+                 serviceObject,
+                 serviceRuntimeConfig,
+                 repo_url: str = "/tmp/test_looper/repos",
+                 worker_id: str = "worker-0"):
+        super(RunnerService, self).__init__(db, serviceObject, serviceRuntimeConfig)
+        self.repo_url = repo_url
         self.worker_id = worker_id
+
+    def initialize(self):
+        self.db.subscribeToSchema(test_looper_schema)
+        self._init_worker()
+        runner_reactor = Reactor(self.db, self.run_test)
+        self.registerReactor(runner_reactor)
+        self.startReactors()
+
+    def _init_worker(self):
         with self.db.transaction():
             worker = Worker.lookupAll(workerId=self.worker_id)
             if len(worker) > 1:
@@ -46,9 +53,12 @@ class RunnerService(ServiceMixin):
                        startTimestamp=time.time_ns(),
                        lastHeartbeatTimestamp=time.time_ns())
 
-    def start(self):
-        self.start_threadloop(self.heartbeat)
-        self.start_threadloop(self.run_test)
+    def doWork(self, shouldStop: threading.Event):
+        print("In doWork")
+        with self.reactorsRunning():
+            print("Heartbeating")
+            self.heartbeat()
+            shouldStop.wait(10)
 
     @transaction
     def heartbeat(self):
@@ -58,6 +68,7 @@ class RunnerService(ServiceMixin):
 
     @transaction
     def run_test(self):
+        print("Running tests")
         worker = Worker.lookupOne(workerId=self.worker_id)
         test_node = worker.currentAssignment
         if test_node is not None:
@@ -107,3 +118,8 @@ class RunnerService(ServiceMixin):
                             executionTime=int(round(case_result.duration * 1e9)))
             results.append(tr)
         TestResults(node=test_node, results=results)
+
+    def get_clone(self, repo: Repository):
+        clone_path = os.path.join(self.repo_url, repo.name)
+        is_found = os.path.exists(clone_path)
+        return is_found, clone_path
