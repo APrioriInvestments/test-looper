@@ -5,6 +5,7 @@ from object_database.database_connection import DatabaseConnection
 import shutil
 
 from test_looper.parser import ParserService
+from test_looper.repo_schema import Repository
 from test_looper.service import LooperService
 from test_looper.test_schema import TestNode as TNode
 from test_looper.tl_git import GIT
@@ -24,7 +25,7 @@ def parser_service(odb_conn: DatabaseConnection,
                    template_repo: str,
                    tl_config: dict) -> ParserService:
     setup_repo(odb_conn, template_repo)
-    return ParserService(odb_conn, tl_config["repo_url"])
+    return ParserService(odb_conn, None, None, tl_config["repo_url"])
 
 
 def setup_repo(odb_conn: DatabaseConnection, template_repo: str):
@@ -32,7 +33,9 @@ def setup_repo(odb_conn: DatabaseConnection, template_repo: str):
     service.add_repo(
         "_template_repo", template_repo
     )
-    service.scan_repo("_template_repo", branch="*")
+    with odb_conn.transaction():
+        repo = Repository.lookupOne(name="_template_repo")
+        service.scan_repo(repo, branch="*")
 
 
 def test_parse_commits(parser_service: ParserService):

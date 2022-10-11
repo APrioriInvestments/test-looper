@@ -1,8 +1,11 @@
 # The main service class that will run this TestLooper installation
+import os
 import pathlib
+import shutil
 from typing import Optional, Union
 from urllib.parse import urlparse
 
+from object_database import ServiceBase
 from object_database.database_connection import DatabaseConnection
 
 from test_looper import test_looper_schema
@@ -19,7 +22,7 @@ from test_looper.tl_git import GIT
 from test_looper.utils.db import ServiceMixin, transaction
 
 
-class LooperService(ServiceMixin):
+class LooperService:
     """
     Defines the TestLooper service
     """
@@ -43,16 +46,10 @@ class LooperService(ServiceMixin):
         db: DatabaseConnection
             ODB connection
         """
-        super(LooperService, self).__init__(db, repo_url)
+        self.db = db
+        self.repo_url = repo_url
         self.temp_url = temp_url or pathlib.Path("/tmp")
         self.artifact_store = artifact_store
-
-    def start(self):
-        # 1. Get all repos
-        # 2. Clone all repos
-        # 3. Scan all clones
-        # 4. Delete all clones
-        pass
 
     @staticmethod
     def from_odb(db: DatabaseConnection) -> "LooperService":
@@ -114,18 +111,17 @@ class LooperService(ServiceMixin):
                 repo = Repository(name=name, config=config)
         return repo.config
 
-    @transaction
-    def scan_repo(self, repo_name: str, branch: Optional[str]):
+    def scan_repo(self, repo: Repository, branch: Optional[str]):
         """
         Scan the specified repo. If no branch is specified, only the
         default branch is scanned.
         """
-        repo = Repository.lookupOne(name=repo_name)
-        if repo is None:
-            raise KeyError(f"Repository {repo_name} is not registered")
+        print("Scanning {}", repo)
         is_found, clone_path = self.get_clone(repo)
-        if not is_found:
-            _create_clone(repo.config, clone_path)
+        _create_clone(repo.config, clone_path)
+        self._parse_branches(repo, branch, clone_path)
+
+    def _parse_branches(self, repo, branch, clone_path):
         g = GIT()
         if branch is None:
             to_scan = [g.get_head(clone_path)]
@@ -139,6 +135,11 @@ class LooperService(ServiceMixin):
             raise NotImplementedError()
         for b in to_scan:
             parse_branch(repo, b)
+
+    def get_clone(self, repo: Repository):
+        clone_path = os.path.join(self.repo_url, repo.name)
+        is_found = os.path.exists(clone_path)
+        return is_found, clone_path
 
 
 def parse_repo_url(
@@ -205,17 +206,20 @@ def parse_commits(repo: Repository, commit: "git.Commit") -> Commit:
     """
     top_commit = make_commit(repo, commit)
     to_process = [(top_commit, commit.parents)]
+    added = 0
     while len(to_process) > 0:
         odb_c, parents = to_process.pop()
         for p in parents:
             odb_p = Commit.lookupAny(sha=p.hexsha)
             if odb_p is None:
                 odb_p = make_commit(repo, p)
+                added += 1
                 if len(p.parents) > 0:
                     to_process.append((odb_p, p.parents))
             rel = CommitParent.lookupAny(parentAndChild=(odb_p, odb_c))
             if rel is None:
                 CommitParent(parent=odb_p, child=odb_c)
+    print(f"{added} Commit's added to ODB")
     return top_commit
 
 
@@ -235,8 +239,15 @@ def make_commit(repo, c):
 
 def _create_clone(conf: RepoConfig, clone_path):
     if isinstance(conf, RepoConfig.Https):
+        print(f"Cloning {conf.url} to {clone_path}")
         GIT().clone(conf.url, clone_path, all_branches=True)
     elif isinstance(conf, RepoConfig.Local):
+        print(f"Cloning {conf.path} to {clone_path}")
         GIT().clone(conf.path, clone_path, all_branches=True)
     else:
         raise NotImplementedError("Only public https cloning supported")
+
+
+def _remove_clone(clone_path):
+    print(f"Removing {clone_path}")
+    shutil.rmtree(clone_path)

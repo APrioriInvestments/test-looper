@@ -7,8 +7,6 @@ from object_database import connect
 
 from test_looper import test_looper_schema
 from test_looper.service import LooperService
-from test_looper.parser import ParserService
-from test_looper.runner import RunnerService, DispatchService
 from test_looper.tl_git import GIT
 
 
@@ -38,17 +36,9 @@ def run_tests(host, port, token, repo_url):
     # Register a repo and scan all branches for commits
     looper = LooperService(odb, repo_url=repo_url)
     looper.add_repo('template_repo', repo_url)
-    looper.scan_repo('template_repo', branch="*")
+    # looper.scan_repo('template_repo', branch="*")
 
-    # Parse commits and create test plan
-    parser = ParserService(odb, repo_url=repo_url)
-    parser.parse_commits()
-
-    # create a dispatcher to assign TestNodes
-    dispatch = DispatchService(odb, repo_url=repo_url)
     # register a worker
-    runner = RunnerService(odb, repo_url=repo_url, worker_id="tout seul")
-
-    dispatch.assign_nodes()  # this will assign it to the runner
-    runner.run_test()
+    #runner = RunnerService(odb, repo_url=repo_url, worker_id="tout seul")
+    #runner.run_test()
     return odb
