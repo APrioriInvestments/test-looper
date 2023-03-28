@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0",
+            "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "testlooper"
+version = "0.1.0"
+description = "Testlooper is a tool for running test suites across commits and serving a UI for the results."
+readme = "README.md"
+license = "Apache"
+authors = ["William Grant <william.grant@aprioriinvestments.com>",
+    "Alexandros Tzannes <alexandros.tzannes@aprioriinvestments.com>",
+    "Braxton McKee <braxton@aprioriinvestments.com>"]
+repository = "https://github.com/APrioriInvestments/test-looper"
+documentation = "https://github.com/APrioriInvestments/test-looper"
+keywords = ["testing"]
+requires_python = ">=3.8"

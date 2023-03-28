@@ -1,6 +1,7 @@
 """Define the core objects and ODB schema for test-looper."""
 from typed_python import OneOf, Alternative, TupleOf, Dict, NamedTuple
 from object_database import Schema, Indexed, Index, SubscribeLazilyByDefault
+from .repo_schema import Commit
 
 
 # primary schema for test-looper objects
