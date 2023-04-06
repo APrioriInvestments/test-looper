@@ -35,8 +35,8 @@ def main(argv=None):
         argv = sys.argv
 
     token = genToken()
-    httpPort = 8000
-    odbPort = 8020
+    httpPort = 8001
+    odbPort = 8021
     loglevel_name = "INFO"
 
     with tempfile.TemporaryDirectory() as tmpDirName:

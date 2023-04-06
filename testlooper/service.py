@@ -3,7 +3,7 @@ import time
 
 from object_database import ServiceBase
 from .schema import test_looper_schema
-
+from .query_args import QueryArgs
 
 # define a type of entry in odb. We'll have one instance of this class for each
 # message in the database
@@ -37,9 +37,38 @@ class TestlooperService(ServiceBase):
 
     @staticmethod
     def serviceDisplay(serviceObject, instance=None, objType=None, queryArgs=None):
+        # big assumption - this only gets called once.
+        
+        print('---------------calling serviceDisplay---------------')
+
+        reload_button = cells.Button('Reload', reload)
+
+
+
+        # check the queryArgs to see if we should jump to somewhere.
+        if queryArgs:
+            qargs = QueryArgs(queryArgs)
+            page_type = qargs.current_page
+            # probably there is a better way then checking every type
+            if page_type == 'repo':
+                return cells.Panel(reload_button + cells.Card('Repo page'))
+            elif page_type == 'branch':
+                return cells.Panel(reload_button + cells.Card('Branch page'))
+            elif page_type == 'commit':
+                return cells.Panel(reload_button + cells.Card('Commit page'))
+            else:
+                raise ValueError('unexpected page type ', page_type)
+        else:
+            return cells.Panel(reload_button + cells.Card('Main page'))
+
+    
         # make sure cells has loaded these classes in the database and subscribed
         # to all the objects.
         cells.ensureSubscribedSchema(test_looper_schema)
+
+        
+
+
 
         def newMessage():
             # calling the constructor creates a new message object. Even though we
@@ -54,12 +83,24 @@ class TestlooperService(ServiceBase):
         # define an 'edit box' cell. The user can type into this.
         editBox = cells.SingleLineTextBox(onEnter=lambda newText: newMessage())
 
-        return cells.Panel(
+
+        # 
+        #
+
+
+
+
+
+
+
+
+
+        return  cells.Panel(
             editBox >> cells.Button(
                 "New Message",
                 newMessage
             )
-        ) + (
+        ) + cells.Panel(
             cells.Table(
                 colFun=lambda: ['timestamp', 'lifetime', 'message'],
                 rowFun=lambda: sorted(Message.lookupAll(), key=lambda m: -m.timestamp),
@@ -77,4 +118,9 @@ class TestlooperService(ServiceBase):
                 maxRowsPerPage=100,
                 fillHeight=True
             )
-        )
+         ) + cells.Border(border=100) * cells.Panel(cells.Button('Hello', lambda: print('hello')))
+
+def reload():
+    import os
+    os._exit(0)
+
