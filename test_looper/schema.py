@@ -1,5 +1,5 @@
 """Define the core objects and ODB schema for test-looper."""
-from typed_python import OneOf, Alternative, TupleOf, Dict
+from typed_python import OneOf, Alternative, TupleOf, Dict, NamedTuple
 from object_database import Schema, Indexed, Index, SubscribeLazilyByDefault
 
 
@@ -33,7 +33,7 @@ GitService = Alternative(
         gitlab_login_url=str,  # usually https://gitlab.mycompany.com
         gitlab_api_url=str,  # usually https://gitlab.mycompany.com/api/v3
         gitlab_clone_url=str,  # usually git@gitlab.mycompany.com
-    )
+    ),
 )
 
 
@@ -43,12 +43,8 @@ RepoConfig = Alternative(
     Ssh=dict(url=str, privateKey=bytes),
     Http=dict(url=str),
     Local=dict(path=str),
-    FromService=dict(
-        repoName=str,
-        service=GitService
-    )
+    FromService=dict(repoName=str, service=GitService),
 )
-
 
 
 ArtifactStorageConfig = Alternative(
@@ -58,10 +54,7 @@ ArtifactStorageConfig = Alternative(
         path_to_test_artifacts=str,
     ),
     S3=dict(
-        bucket=str,
-        region=str,
-        build_artifact_key_prefix=str,
-        test_artifact_key_prefix=str
+        bucket=str, region=str, build_artifact_key_prefix=str, test_artifact_key_prefix=str
     ),
     # TODO: something else fancy?
 )
@@ -73,18 +66,18 @@ Command = NamedTuple(
     dockerImageName=str,
     environmentVariables=Dict(str, str),
     bashCommand=str,
-    timeoutSeconds=float
+    timeoutSeconds=float,
 )
 
 
 # model a single entry in a test plan. The collection of these must form a DAG
-# with 'Test' 
+# with 'Test'
 TestNodeDefinition = Alternative(
     "TestNodeDefinition",
     # run arbitrary code to produce a set of binary outputs
     Build=dict(
-        inputs=TupleOf(str), # the named inputs
-        outputs=TupleOf(str), # list of named outputs
+        inputs=TupleOf(str),  # the named inputs
+        outputs=TupleOf(str),  # list of named outputs
         minCpus=int,
         minRamGb=float,
         command=Command,
@@ -92,16 +85,16 @@ TestNodeDefinition = Alternative(
     # run arbitrary code to produce the text of a docker image
     # then build that docker image
     DockerImage=dict(
-        inputs=TupleOf(str), # the named inputs
+        inputs=TupleOf(str),  # the named inputs
     ),
     # run arbitrary code to produce a list of tests, and then run them
     Test=dict(
-        inputs=TupleOf(str), # named inputs
+        inputs=TupleOf(str),  # named inputs
         minCpus=int,
         minRamGb=float,
         listTests=Command,
-        runTests=Command
-    )
+        runTests=Command,
+    ),
 )
 
 
@@ -110,7 +103,7 @@ TestResult = NamedTuple(
     testId=str,
     success=bool,
     startTime=float,
-    executionTime=float
+    executionTime=float,
 )
 
 
@@ -131,7 +124,8 @@ WorkerConfig = Alternative(
         worker_name=str,  # name of workers. This should be unique to this install.
         worker_iam_role_name=str,  # AIM role to boot workers into
         linux_ami=str,  # default linux AMI to use when booting linux workers
-        windows_ami=str,  # default AMI to use when booting windows workers. Can be overridden for one-shot workers.
+        windows_ami=str,  # default AMI to use when booting windows workers.
+        # Can be overridden for one-shot workers.
         path_to_keys=str,  # path to ssh keys to place on workers to access source control.
         instance_types=Dict(HardwareConfig, str),
         # dict from hardware configuration to instance types we're willing to boot
@@ -139,24 +133,42 @@ WorkerConfig = Alternative(
         # dict from hostname to ip address to make available to workers
         # this is primarily useful when workers don't have access to dns
         # but we still want certs to all be valid
-        max_cores=OneOf(None, int),  # cap on the number of cores we're willing to boot. None means no limit
-        max_ram_gb=OneOf(None, int),  # cap on the number of gb of ram we're willing to boot. None means no limit
-        max_workers=OneOf(None, int),  # cap on the number of workers we're willing to boot. None means no limit
+        max_cores=OneOf(
+            None, int
+        ),  # cap on the number of cores we're willing to boot. None means no limit
+        max_ram_gb=OneOf(
+            None, int
+        ),  # cap on the number of gb of ram we're willing to boot. None means no limit
+        max_workers=OneOf(
+            None, int
+        ),  # cap on the number of workers we're willing to boot. None means no limit
     ),
     # run workers in-proc in the server
     Local=dict(
         local_storage_path=str,  # local disk storage we can use for workers
         docker_scope=str,  # local scope to augment dockers with
-        max_cores=OneOf(None, int),  # cap on the number of cores we're willing to boot. means no limit
-        max_ram_gb=OneOf(None, int),  # cap on the number of gb of ram we're willing to boot. means no limit
-        max_workers=OneOf(None, int),  # cap on the number of workers we're willing to boot. means no limit
+        max_cores=OneOf(
+            None, int
+        ),  # cap on the number of cores we're willing to boot. means no limit
+        max_ram_gb=OneOf(
+            None, int
+        ),  # cap on the number of gb of ram we're willing to boot. means no limit
+        max_workers=OneOf(
+            None, int
+        ),  # cap on the number of workers we're willing to boot. means no limit
     ),
     # run workers in-proc in the server
     Dummy=dict(
-        max_cores=OneOf(None, int),  # cap on the number of cores we're willing to boot. None means no limit
-        max_ram_gb=OneOf(None, int),  # cap on the number of gb of ram we're willing to boot. None means no limit
-        max_workers=OneOf(None, int),  # cap on the number of workers we're willing to boot. None means no limit
-    )
+        max_cores=OneOf(
+            None, int
+        ),  # cap on the number of cores we're willing to boot. None means no limit
+        max_ram_gb=OneOf(
+            None, int
+        ),  # cap on the number of gb of ram we're willing to boot. None means no limit
+        max_workers=OneOf(
+            None, int
+        ),  # cap on the number of workers we're willing to boot. None means no limit
+    ),
 )
 
 
@@ -213,10 +225,11 @@ class Commit:
 @test_looper_schema.define
 class CommitParent:
     """Model the parent-child relationshp between two commits"""
+
     parent = Indexed(Commit)
     child = Indexed(Commit)
 
-    parentAndChild = Index('parent', 'child')
+    parentAndChild = Index("parent", "child")
 
 
 @test_looper_schema.define
@@ -224,7 +237,7 @@ class Branch:
     repo = Indexed(Repo)
     name = str
 
-    repoAndName = Index('repo', 'name')
+    repoAndName = Index("repo", "name")
     topCommit = Commit
 
     # allows us to ask "what are the prioritized branches"
@@ -232,20 +245,11 @@ class Branch:
 
 
 @test_looper_schema.define
-class Branch:
-    repo = Indexed(Repo)
-    name = str
-
-    repoAndName = Index('repo', 'name')
-    topCommit = Indexed(Commit)
-
-
-@test_looper_schema.define
 class TestNode:
     commit = Indexed(Commit)
     name = str
 
-    commitAndName = Index('commit', 'name')
+    commitAndName = Index("commit", "name")
 
     definition = TestNodeDefinition
 
@@ -268,6 +272,7 @@ class TestNode:
     # crude proxy for the state machine we'll need to decide what to build/run
     needsMoreWork = Indexed(bool)
 
+
 @test_looper_schema.define
 @SubscribeLazilyByDefault
 class TestResults:
@@ -279,6 +284,7 @@ class TestResults:
 @test_looper_schema.define
 class Machine:
     """Models a single "booted machine" that's online and capable of doing work for us."""
+
     machineId = int
 
     # machines have to heartbeat
