@@ -1,4 +1,4 @@
-# TestDefinitions Spec
+# Repo Configuration Specification
 
 ## Design principles:
 
@@ -20,30 +20,36 @@
 
 Entrypoint is still this file that has to be somewhere in the repo:
 
-`testDefinitions.yaml`:
+`.test-looper/config.yaml`:
 ```
+version: X.Y
+os: linux
+variables:
+    ENV_VAR_NAME: value
+    ...
+
 image:
-    # one of three ways to define the image in which we're going to run.
+    # one of several ways to define the image in which we're going to run.
     ami: someAmiName
-    docker_contents: text_contents
     dockerfile: path-in-repo
 
-command: |
+generate-test-plan: |
     # some bash code to run that produces the actual test definitions and environments
     # can assume we have defined the following environment variables:
-    # TEST_SRC - path to the current checked out repo, which will also be the CWD
-    # CONFIG_OUTPUT - path to where we expect the output to go
+    # REPO_ROOT - path to the current checked out repo, which will also be the CWD
+    # TEST_PLAN_OUTPUT - path to where we expect the produced test plan to go
 ```
 Example:
 ```
- image:
-     dockerfile: fixtures/testLooperConfigDockerfile
+version: 1.0
+image:
+     dockerfile: .test-looper/config-Dockerfile
 
 variables:
-    PYTHONPATH: ${TEST_SRC}
+    PYTHONPATH: ${REPO_ROOT}
 
 command:
-    python -m generateTestLooperEnvironmentsAndTests.py  --out ${CONFIG_OUTPUT}
+    python -m .test-looper/generate_test_plan.py  --out ${TEST_PLAN_OUTPUT}
 ```
 
 test outputs are expected to define the following things: 
@@ -57,15 +63,16 @@ An environment specifies the context in which a build or a test runs (OS, instal
 ```
 environments:
     environment_name:
-        image:  # ami | docker | dockerfile
+        image:  # ami | dockerfile
+        variables:
+            VAR1: Value1
+            VAR2: Value2
+            ...
+        min-ram-gb: ...
+        min-cores: ...
         custom-setup: |
             # additional bash commands to set up the environment
-        variables:
-            VAR1: VAR1Val
-            VAR2: VAR2Val
-            ...
-        min_ram_gb: ...
-        min_cores: ...
+
 ```
 
 A build is a sequence of steps that builds a binary artifact that may be used by another build or test
@@ -80,7 +87,7 @@ builds:
         command: |
             # command to build the output
             # expects
-            # TEST_SRC - path to directory containing source
+            # REPO_ROOT - path to directory containing source
             # BUILD_OUTPUT - path to directory where we should
             #   put the build output.
 ```
@@ -88,8 +95,9 @@ builds:
 A test  is a sequence of steps that runs one or more tests and produces results for each of the tests
 
 ```
-tests:
-    test_name:
+suites:
+    suite_name:
+        kind: unit | perf | ...  # start by only supporting 'unit'
         environment: environment_name
         dependencies:
             build_name_1: pathToWhereMounted ...
@@ -97,14 +105,14 @@ tests:
 
             list-tests: |
                 # bash command that lists individual tests
-                # TEST_SRC - path to the current checked out repo, which will also be the CWD
+                # REPO_ROOT - path to the current checked out repo, which will also be the CWD
                 # TEST_LIST - path to where we expect the output to go
 
             run-tests: |
                 # bash command that executes individual tests given a list of test names
                 # (We could either pass a file with this list or pass the list explicitly on the
                 # command line to the runner-script.)
-                # TEST_SRC - path to the current checked out repo, which will also be the CWD
+                # REPO_ROOT - path to the current checked out repo, which will also be the CWD
                 # TEST_INPUTS - path to a text file with the names of the tests to run
                 # TEST_OUT - path to where we expect the output to go
                 #       flesh this out - how do we describe which tests we ran?
@@ -121,47 +129,63 @@ Examples:
 environments:
     # linux docker container for running our pytest unit-tests
     linux-pytest:
-        min_ram_gb: 10
+        image:
+            dockerfile: .test-looper/linux-pytest-PytestDockerfile
         variables:
-            PYTHONPATH: ${TEST_SRC}
+            PYTHONPATH: ${REPO_ROOT}
             TP_COMPILER_CACHE: /tp_compiler_cache
             IS_TESTLOOPER: true
-        image:
-            dockerfile: fixtures/testLooperPytestDockerfile
-        custom-setup:
+        min-ram-gb: 10
+        custom-setup: |
             python -m pip install --editable .
 
     # native linux image necessary for running unit-tests that need to boot docker containers.
     linux-native:
-        min_ram_gb: 10
         image:
-            base_ami: ami-070b2b608b25dc0f1  # ubuntu-20.04-ami
+            base_ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
+        min-ram-gb: 10
         custom-setup: |
-            sudo apt-get --yes install libgdal-dev gdal-bin python3.8-venv
+            sudo apt-get --yes install python3.8-venv
             make install  # install pinned dependencies
-
 ```
 
 ```
-tests:
+suites:
     pytest:
+        kind: unit
         environment: linux-pytest
         list-tests: |
-            ./scripts/collectPytestTests.sh -m 'not docker'
+            .test-looper/collect-pytest-tests.sh -m 'not docker'
         run-tests: |
-            ./scripts/runPytestTests.sh
+            .test-looper/run-pytest-tests.sh
 
     pytest-docker:
+        kind: unit
         environment: linux-native
         list-tests: |
-            ./scripts/collectPytestTests.sh -m 'docker'
+            .test-looper/collect-pytest-tests.sh -m 'docker'
         run-tests: |
-            ./scripts/runPytestTests.sh
+            .test-looper/run-pytest-tests.sh
 
     matlab:
+        kind: unit
         environment: linux-native
         list-tests: |
-            ./scripts/collectMatlabTests.sh
+            .test-looper/collect-matlab-tests.sh
         run-tests: |
-            ./scripts/runMatlabTests.sh
+            .test-looper/run-matlab-tests.sh
 ```
+
+### Format for the output of list-tests
+
+```
+suite_name:
+  - unique_test_name:
+    path: str  # do we need this?
+    labels: List[str]  # e.g., pytest markings such as slow, skip, docker
+```
+
+### Format for the output of run-tests
+
+Let's start with the format of pytest-json-report:
+https://pypi.org/project/pytest-json-report/#format
