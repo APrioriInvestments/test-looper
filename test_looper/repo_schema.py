@@ -52,8 +52,10 @@ class Repo:
 
 @repo_schema.define
 class Commit:
-    hash = str
+    hash = Indexed(str)
     repo = Indexed(Repo)
+    repo_and_hash = Index("repo", "hash")
+
     commit_text = str
     author = str
 
