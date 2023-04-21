@@ -3,6 +3,7 @@ Validates and parses query arguments
 """
 from dataclasses import dataclass
 
+
 @dataclass
 class QueryArgs:
     qargs_dict: dict
@@ -12,7 +13,6 @@ class QueryArgs:
     def __post_init__(self):
         if not self._validate():
             raise ValueError("Invalid query args")
-
 
     @property
     def current_page(self):
@@ -34,7 +34,6 @@ class QueryArgs:
         else:
             return True
 
-
     def get_current_page_type(self):
         """Returns the current page based on the query args."""
         if self.qargs_dict.get("commit"):
@@ -48,5 +47,3 @@ class QueryArgs:
         else:
             assert len(self.qargs_dict) == 1
             return list(self.qargs_dict.keys())[0]
-
-

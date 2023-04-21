@@ -1,8 +1,9 @@
 """Define the core objects and ODB schema for test-looper."""
-from typed_python import OneOf, Alternative, TupleOf, Dict, NamedTuple
-from object_database import Schema, Indexed, Index, SubscribeLazilyByDefault
+import object_database.web.cells as cells
+from object_database import Index, Indexed, Schema, SubscribeLazilyByDefault
+from typed_python import Alternative, Dict, NamedTuple, OneOf, TupleOf
 
-__all__ = ["test_looper_schema"]
+__all__ = ["test_looper_schema", "Repo", "Commit", "Branch"]
 
 # primary schema for test-looper objects
 test_looper_schema = Schema("testlooper")
@@ -34,7 +35,7 @@ GitService = Alternative(
         gitlab_login_url=str,  # usually https://gitlab.mycompany.com
         gitlab_api_url=str,  # usually https://gitlab.mycompany.com/api/v3
         gitlab_clone_url=str,  # usually git@gitlab.mycompany.com
-    )
+    ),
 )
 
 
@@ -44,10 +45,7 @@ RepoConfig = Alternative(
     Ssh=dict(url=str, privateKey=bytes),
     Http=dict(url=str),
     Local=dict(path=str),
-    FromService=dict(
-        repoName=str,
-        service=GitService
-    )
+    FromService=dict(repoName=str, service=GitService),
 )
 
 
@@ -58,10 +56,7 @@ ArtifactStorageConfig = Alternative(
         path_to_test_artifacts=str,
     ),
     S3=dict(
-        bucket=str,
-        region=str,
-        build_artifact_key_prefix=str,
-        test_artifact_key_prefix=str
+        bucket=str, region=str, build_artifact_key_prefix=str, test_artifact_key_prefix=str
     ),
     # TODO: something else fancy?
 )
@@ -73,7 +68,7 @@ Command = NamedTuple(
     dockerImageName=str,
     environmentVariables=Dict(str, str),
     bashCommand=str,
-    timeoutSeconds=float
+    timeoutSeconds=float,
 )
 
 
@@ -100,8 +95,8 @@ TestNodeDefinition = Alternative(
         minCpus=int,
         minRamGb=float,
         listTests=Command,
-        runTests=Command
-    )
+        runTests=Command,
+    ),
 )
 
 
@@ -110,7 +105,7 @@ TestResult = NamedTuple(
     testId=str,
     success=bool,
     startTime=float,
-    executionTime=float
+    executionTime=float,
 )
 
 
@@ -131,7 +126,8 @@ WorkerConfig = Alternative(
         worker_name=str,  # name of workers. This should be unique to this install.
         worker_iam_role_name=str,  # AIM role to boot workers into
         linux_ami=str,  # default linux AMI to use when booting linux workers
-        # default AMI to use when booting windows workers. Can be overridden for one-shot workers.
+        # default AMI to use when booting windows workers.
+        # Can be overridden for one-shot workers.
         windows_ami=str,
         path_to_keys=str,  # path to ssh keys to place on workers to access source control.
         instance_types=Dict(HardwareConfig, str),
@@ -166,7 +162,7 @@ WorkerConfig = Alternative(
         max_ram_gb=OneOf(None, int),
         # cap on the number of workers we're willing to boot. None means no limit
         max_workers=OneOf(None, int),
-    )
+    ),
 )
 
 
@@ -187,6 +183,10 @@ class Config:
 class Repo:
     config = RepoConfig
     name = Indexed(str)
+
+    def display(self):
+        """Returns the Cells object for the repo page."""
+        return cells.Card("Repo: " + self.name) + cells.Card("Config" + str(self.config))
 
 
 @test_looper_schema.define
@@ -223,10 +223,11 @@ class Commit:
 @test_looper_schema.define
 class CommitParent:
     """Model the parent-child relationshp between two commits"""
+
     parent = Indexed(Commit)
     child = Indexed(Commit)
 
-    parentAndChild = Index('parent', 'child')
+    parentAndChild = Index("parent", "child")
 
 
 @test_looper_schema.define
@@ -234,7 +235,7 @@ class Branch:
     repo = Indexed(Repo)
     name = str
 
-    repoAndName = Index('repo', 'name')
+    repoAndName = Index("repo", "name")
     topCommit = Commit
 
     # allows us to ask "what are the prioritized branches"
@@ -246,7 +247,7 @@ class TestNode:
     commit = Indexed(Commit)
     name = str
 
-    commitAndName = Index('commit', 'name')
+    commitAndName = Index("commit", "name")
 
     definition = TestNodeDefinition
 
@@ -281,6 +282,7 @@ class TestResults:
 @test_looper_schema.define
 class Machine:
     """Models a single "booted machine" that's online and capable of doing work for us."""
+
     machineId = int
 
     # machines have to heartbeat

@@ -28,6 +28,7 @@ from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.util import genToken
 from object_database.web.LoginPlugin import LoginIpPlugin
+from testlooper.schema import test_looper_schema, RepoConfig, Repo, Commit, Branch
 
 
 def main(argv=None):
@@ -47,7 +48,12 @@ def main(argv=None):
             )
 
             database = connect("localhost", odbPort, token, retry=True)
-            database.subscribeToSchema(core_schema, service_schema, active_webservice_schema)
+            database.subscribeToSchema(
+                core_schema,
+                service_schema,
+                active_webservice_schema,
+                test_looper_schema,
+            )
 
             with database.transaction():
                 service = ServiceManager.createOrUpdateService(
@@ -84,6 +90,15 @@ def main(argv=None):
                 service = ServiceManager.createOrUpdateService(
                     TestlooperService, "TestlooperService", target_count=1
                 )
+
+            # populate our db.
+            with database.transaction():
+                # add a repo with branches and commits
+                repo_config = RepoConfig.Local(path="/tmp/test_repo")
+                repo = Repo(name="test_repo", config=repo_config)
+                commit = Commit(repo=repo, commitText="test commit", author="test author")
+                branch = Branch(repo=repo, name="dev", topCommit=commit, isPrioritized=True)
+                print("created repo", repo, "commit", commit, "branch", branch)
 
             while True:
                 time.sleep(0.1)
