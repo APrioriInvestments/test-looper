@@ -1,4 +1,4 @@
-from typed_python import OneOf, Alternative, TupleOf, Dict, NamedTuple, ListOf, ConstDict
+from typed_python import OneOf, TupleOf, NamedTuple, ListOf, ConstDict
 from object_database import Schema, Indexed, Index, SubscribeLazilyByDefault
 from .repo_schema import repo_schema
 
@@ -81,12 +81,14 @@ class Test:
     """Definition of a Test
 
     May belong to more than one TestSuite object (for different commits)
-    Its name is unique within a TestSuite and also within a commit
+    Its name is unique within a TestSuite and also within a commit, but not
+    necessarily across commits because the labels might be different.
     """
 
-    name = Indexed(str)  # unique
-    path = str
+    name = Indexed(str)
     labels = TupleOf(str)
+    name_and_labels = Index("name", "labels")
+    path = str
 
     parent = OneOf(None, test_schema.Test)  # Most recent ancestor
 
@@ -114,14 +116,15 @@ TestRunResult = NamedTuple(
 
 
 @test_schema.define
+@SubscribeLazilyByDefault
 class TestResults:
     """Results of running a test on a commit
 
     An instance is created upon determining we need this test to run on a commit
     """
 
-    test = Index(test_schema.Test)
-    commit = Index(repo_schema.Commit)
+    test = Indexed(test_schema.Test)
+    commit = Indexed(repo_schema.Commit)
     test_and_commit = Index("test", "commit")
 
     runs_desired = int
