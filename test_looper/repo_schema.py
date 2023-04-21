@@ -40,7 +40,7 @@ RepoConfig = Alternative(
     Ssh=dict(url=str, privateKey=bytes),
     Http=dict(url=str),
     Local=dict(path=str),
-    FromService=dict(repoName=str, service=GitService),
+    FromService=dict(repo_name=str, service=GitService),
 )
 
 

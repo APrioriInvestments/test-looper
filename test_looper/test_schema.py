@@ -67,13 +67,18 @@ class TestSuite:
     _hash = int
 
     @property
+    def is_new(self):
+        return True if self.parent is None else False
+
+    @property
     def hash(self):
         if not self._hash:
             self._hash = hash(tuple(hash(test.name) for test in self.tests))
         return self._hash
 
     def new_tests(self):
-        return [test for test in self.tests if test.parent is None]
+        """Returns a list of tests that are new in this test-suite"""
+        return [test for test in self.tests if test.is_new]
 
 
 @test_schema.define
@@ -87,10 +92,14 @@ class Test:
 
     name = Indexed(str)
     labels = TupleOf(str)
-    name_and_labels = Index("name", "labels")
+    name_and_labels = Index("name", "labels")  # unique
     path = str
 
     parent = OneOf(None, test_schema.Test)  # Most recent ancestor
+
+    @property
+    def is_new(self):
+        return True if self.parent is None else False
 
 
 # outcomes taken from pytest-json-report; append to add more
@@ -125,7 +134,7 @@ class TestResults:
 
     test = Indexed(test_schema.Test)
     commit = Indexed(repo_schema.Commit)
-    test_and_commit = Index("test", "commit")
+    test_and_commit = Index("test", "commit")  # unique
 
     runs_desired = int
 
