@@ -1,5 +1,5 @@
-from typed_python import OneOf, Alternative, TupleOf, Dict, NamedTuple
-from object_database import Schema, Indexed, Index, SubscribeLazilyByDefault
+from typed_python import Alternative
+from object_database import Schema, Indexed, Index
 
 # schema for test-looper repository objects
 repo_schema = Schema("test_looper_repo")
@@ -91,7 +91,7 @@ class CommitParent:
     parent = Indexed(Commit)
     child = Indexed(Commit)
 
-    parentAndChild = Index("parent", "child")
+    parent_and_child = Index("parent", "child")
 
 
 @repo_schema.define
@@ -99,8 +99,5 @@ class Branch:
     repo = Indexed(Repo)
     name = str
 
-    repoAndName = Index("repo", "name")
-    topCommit = Commit
-
-    # allows us to ask "what are the prioritized branches"
-    isPrioritized = Indexed(bool)
+    repo_and_name = Index("repo", "name")
+    top_commit = Commit
