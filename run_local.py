@@ -28,7 +28,7 @@ from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.util import genToken
 from object_database.web.LoginPlugin import LoginIpPlugin
-from testlooper.repo_schema import repo_schema, RepoConfig, Repo, Commit, Branch
+from testlooper.repo_schema import repo_schema, RepoConfig, Repo, Commit, Branch, CommitParent
 
 
 def main(argv=None):
@@ -92,19 +92,37 @@ def main(argv=None):
                 )
 
             # populate our db.
+            commits = []
             with database.transaction():
                 # add a repo with branches and commits
                 repo_config = RepoConfig.Local(path="/tmp/test_repo")
+
                 repo = Repo(name="test_repo", config=repo_config)
-                commit = Commit(
-                    hash="12abc43a",
-                    repo=repo,
-                    commit_text="test commit",
-                    author="test author",
-                    test_plan_generated=False,
+
+                commits.append(
+                    Commit(
+                        hash="12abc43a",
+                        repo=repo,
+                        commit_text="test commit",
+                        author="test author",
+                        test_plan_generated=False,
+                    )
                 )
-                branch = Branch(repo=repo, name="dev", top_commit=commit)
-                print("created repo", repo, "commit", commit, "branch", branch)
+
+                commits.append(
+                    Commit(
+                        hash="dada321fed",
+                        repo=repo,
+                        commit_text="initial commit",
+                        author="father of this repo",
+                    )
+                )
+
+                CommitParent(parent=commits[1], child=commits[0])
+
+                Branch(repo=repo, name="dev", top_commit=commits[0])
+
+                # print("created repo", repo, "commit", commit, "branch", branch)
 
             while True:
                 time.sleep(0.1)
