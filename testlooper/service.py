@@ -8,9 +8,9 @@ objects display method if it exists, otherwise we just return a string.
 """
 
 import logging
-
 import object_database.web.cells as cells
 from object_database import ServiceBase
+from typed_python import ConstDict
 
 from .repo_schema import Repo, repo_schema
 
@@ -53,25 +53,30 @@ def reload():
 class Homepage:
     @classmethod
     def display(cls, serviceObject):
-        print("displaying")
-        repos = Repo.lookupAll()
-        # buttons = []
-        repo_rows = []
-        for repo in repos:
-            type_name = f"{repo_schema.name}.{type(repo).__name__}"
-            link = f"{serviceObject.name}/{type_name}/{repo._identity}"
-            # buttons.append(cells.Clickable(repo.name, link))
-            repo_row = {
-                "Name": cells.Clickable(repo.name, link),
-                "Primary Branch": "dev",
-                "Latest Commit": "bla",
-                "Latest Test Run": "bla",
-                "Primary Branch Status": "Passing",
-                "Test Definitions": "bla",
-                "Test Plan Generator": "bla",
-                "Test Suites": "bla",
-            }
-            repo_rows.append(repo_row)
+        def rowFun():
+            repo_rows = []
+            repos = Repo.lookupAll()
+            for repo in repos:
+                type_name = f"{repo_schema.name}.{type(repo).__name__}"
+                link = f"{serviceObject.name}/{type_name}/{repo._identity}"
+                # buttons.append(cells.Clickable(repo.name, link))
+                repo_row = ConstDict(str, object)(
+                    {
+                        "Name": cells.Clickable(repo.name, link),
+                        "Primary Branch": "dev",
+                        "Latest Commit": "bla",
+                        "Latest Test Run": "bla",
+                        "Primary Branch Status": "Passing",
+                        "Test Definitions": "bla",
+                        "Test Plan Generator": "bla",
+                        "Test Suites": "bla",
+                    }
+                )
+                repo_rows.append(repo_row)
+            return repo_rows
+
+        def repoDataRenderer(data, field):
+            return data[field]
 
         # TODO use a headerbar
         reload_button = cells.Button("Reload", reload)
@@ -79,6 +84,23 @@ class Homepage:
             [reload_button, cells.Button("TL", f"{serviceObject.name}")], margin=10
         )
 
-        repo_table = cells.Table.from_rows(repo_rows)
+        repo_table = cells.Table(
+            colFun=lambda: [
+                "Name",
+                "Primary Branch",
+                "Latest Commit",
+                "Latest Test Run",
+                "Primary Branch Status",
+                "Test Definitions",
+                "Test Plan Generator",
+                "Test Suites",
+            ],
+            rowFun=rowFun,
+            headerFun=lambda x: x,
+            rendererFun=repoDataRenderer,
+            maxRowsPerPage=100,
+            sortColumn="Name",
+        )
+
         layout += cells.Card(repo_table, header="Repos")
         return layout
