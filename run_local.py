@@ -28,7 +28,7 @@ from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.util import genToken
 from object_database.web.LoginPlugin import LoginIpPlugin
-from testlooper.repo_schema import repo_schema, RepoConfig, Repo, Commit, Branch, CommitParent
+from testlooper.repo_schema import repo_schema, RepoConfig, Repo, Commit, Branch
 
 
 def main(argv=None):
@@ -98,7 +98,6 @@ def main(argv=None):
                 repo_config = RepoConfig.Local(path="/tmp/test_repo")
 
                 repo = Repo(name="test_repo", config=repo_config)
-
                 commits.append(
                     Commit(
                         hash="12abc43a",
@@ -118,9 +117,10 @@ def main(argv=None):
                     )
                 )
 
-                CommitParent(parent=commits[1], child=commits[0])
+                commits[0].set_parents([commits[1]])
 
-                Branch(repo=repo, name="dev", top_commit=commits[0])
+                branch = Branch(repo=repo, name="dev", top_commit=commits[0])
+                repo.primary_branch = branch
 
                 # print("created repo", repo, "commit", commit, "branch", branch)
 

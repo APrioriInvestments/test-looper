@@ -1,8 +1,13 @@
-from typed_python import Alternative
+import logging
+
+from typed_python import Alternative, OneOf
 from object_database import Schema, Indexed, Index
 
+
+logger = logging.getLogger(__name__)
+
 # schema for test-looper repository objects
-repo_schema = Schema("test_looper_repo")
+repo_schema = Schema("testlooper_repo")
 
 # describe generic services, which can provide lots of different repos
 GitService = Alternative(
@@ -48,6 +53,7 @@ RepoConfig = Alternative(
 class Repo:
     name = Indexed(str)
     config = RepoConfig
+    primary_branch = OneOf(None, repo_schema.Branch)
 
 
 @repo_schema.define
@@ -72,7 +78,7 @@ class Commit:
     def children(self):
         return [c.child for c in CommitParent.lookupAll(parent=self)]
 
-    def setParents(self, parents):
+    def set_parents(self, parents):
         """Utility function to manage CommitParent objects"""
         curParents = self.parents
         for p in curParents:
@@ -82,6 +88,11 @@ class Commit:
         for p in parents:
             if p not in curParents:
                 CommitParent(parent=p, child=self)
+
+    def clear_test_results(self):
+        # TODO
+        logger.info(f"Clearing Test Results for commit {self.hash}")
+        pass
 
 
 @repo_schema.define
