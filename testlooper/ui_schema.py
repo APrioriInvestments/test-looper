@@ -1,10 +1,11 @@
 import logging
 
-from object_database import Indexed, Index
 import object_database.web.cells as cells
+from object_database import Index, Indexed
 
-from .schema_declarations import ui_schema, repo_schema
-
+from . import TL_SERVICE_NAME
+from .schema_declarations import repo_schema, ui_schema
+from .utils import get_tl_link
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ class BranchView:
     branch = Indexed(repo_schema.Branch)
     commit_and_branch = Index("commit", "branch")
 
-    def display(self):
+    def display_cell(self):
         def rowFun():
             depth = 10
 
@@ -41,7 +42,7 @@ class BranchView:
 
         def rendererFun(commit, field):
             if field == "Hash":
-                return commit.hash
+                return cells.Clickable(commit.hash, get_tl_link(commit))
             elif field == "Testing":
                 return "False"  # TODO
             elif field == "Results Summary":
@@ -55,7 +56,27 @@ class BranchView:
             else:
                 return f"Unexpected Field {field}"
 
-        table = cells.Table(
+        # common layout, should eventually be refactored out.
+        def branch_view_on_click():
+            if not (
+                bv := ui_schema.BranchView.lookupUnique(
+                    commit_and_branch=(self.branch.top_commit, self.branch)
+                )
+            ):
+                bv = ui_schema.BranchView(commit=self.branch.top_commit, branch=self.branch)
+            return get_tl_link(bv)
+
+        repo = self.branch.repo
+        layout = cells.HorizontalSequence(
+            [
+                cells.Button("TL", f"/services/{TL_SERVICE_NAME}"),
+                cells.Button(repo.name, get_tl_link(repo)),
+                cells.Button(self.branch.name, branch_view_on_click),
+            ],
+            margin=100,
+        )
+        layout += cells.Text("Branch: " + self.branch.name, fontSize=20)
+        layout += cells.Table(
             colFun=lambda: [
                 "Hash",
                 "Testing",
@@ -68,4 +89,4 @@ class BranchView:
             headerFun=lambda x: x,
             rendererFun=rendererFun,
         )
-        return table
+        return layout

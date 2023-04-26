@@ -1,10 +1,12 @@
 import logging
 
-from typed_python import Alternative, OneOf
-from object_database import Indexed, Index
+import object_database.web.cells as cells
+from object_database import Index, Indexed
+from typed_python import Alternative, ConstDict, OneOf
 
-from .schema_declarations import repo_schema
-
+from .schema_declarations import repo_schema, ui_schema
+from . import TL_SERVICE_NAME
+from .utils import get_tl_link
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,81 @@ class Repo:
     config = RepoConfig
     primary_branch = OneOf(None, repo_schema.Branch)
 
+    def display_cell(self) -> cells.Cell:
+        """Returns the Cells object for the repo page."""
+        # common layout, should eventually be refactored out.
+        layout = cells.HorizontalSequence(
+            [
+                cells.Button("TL", f"/services/{TL_SERVICE_NAME}"),
+                cells.Button(self.name, get_tl_link(self)),
+            ],
+            margin=100,
+        )
+        layout += cells.Text("Repo: " + self.name, fontSize=20)
+        layout += cells.HorizontalSequence(
+            [
+                cells.Button("View test_definitions file", "/td"),
+                cells.Button("View test plan generator", "/tpg"),
+                cells.Button("View test plan", "/tp"),
+            ],
+            margin=100,
+        )
+
+        # table with the branch information for this repo
+        def row_fun():
+            branch_rows = []
+            branches = Branch.lookupAll(repo=self)
+            for branch in branches:
+                # don't generate the object unless user clicks on the link.
+                def branch_view_on_click():
+                    if not (
+                        bv := ui_schema.BranchView.lookupUnique(
+                            commit_and_branch=(branch.top_commit, branch)
+                        )
+                    ):
+                        bv = ui_schema.BranchView(commit=branch.top_commit, branch=branch)
+                    return get_tl_link(bv)
+
+                branch_row = ConstDict(str, object)(
+                    {
+                        "Branch Name": cells.Clickable(branch.name, branch_view_on_click),
+                        "Last Run": "TODO",
+                        "Status": "TODO",
+                        "Autotesting": "Yes",
+                        "Latest Commit": cells.Clickable(
+                            branch.top_commit.hash, get_tl_link(branch.top_commit)
+                        ),
+                        "Rerun All Tests": cells.Button("", "/rerun_all_tests"),
+                        "Rerun Most Recent Failed Tests": cells.Button(
+                            "", "/rerun_failed_tests"
+                        ),
+                    }
+                )
+                branch_rows.append(branch_row)
+            return branch_rows
+
+        def renderer_fun(data, field):
+            return data[field]
+
+        repo_table = cells.Table(
+            colFun=lambda: [
+                "Branch Name",
+                "Last Run",
+                "Status",
+                "Autotesting",
+                "Latest Commit",
+                "Rerun All Tests",
+                "Rerun Most Recent Failed Tests",
+            ],
+            rowFun=row_fun,
+            headerFun=lambda x: x,
+            rendererFun=renderer_fun,
+            maxRowsPerPage=100,
+            sortColumn="Last Run",
+        )
+        layout += cells.Card(repo_table)
+        return layout
+
 
 @repo_schema.define
 class Commit:
@@ -98,6 +175,71 @@ class Commit:
         """Returns the first branch reached by doing a breadth-first-serach on children."""
         # TODO
         pass
+
+    def display_cell(self) -> cells.Cell:
+        """Called by serviceDisplay, returns the Cell for the page representing this commit."""
+        # common layout for header bar, should eventually be refactored out.
+        layout = cells.HorizontalSequence(
+            [
+                cells.Button("TL", f"/services/{TL_SERVICE_NAME}"),
+                cells.Button(self.repo.name, get_tl_link(self.repo)),
+                cells.Button(self.hash, get_tl_link(self)),
+            ],
+            margin=100,
+        )
+        layout += cells.Text("Commit: " + self.hash, fontSize=20)
+        layout += cells.Text(self.commit_text)
+
+        # table with test run info for this commit
+        def row_fun():
+            return [
+                ConstDict(str, str)(
+                    {
+                        "Environment": "TODO",
+                        "Suite": "TODO",
+                        "Test Name": "TODO",
+                        "Status": "TODO",
+                        "Failure Rate": "TODO",
+                        "Failure Count": "TODO",
+                        "Duration": "TODO",
+                        "Currently Running": "TODO",
+                    }
+                )
+            ]
+
+        def renderer_fun(data, field):
+            return data[field]
+
+        table = cells.Table(
+            colFun=lambda: [
+                "Environment",
+                "Suite",
+                "Test Name",
+                "Status",
+                "Failure Rate",
+                "Failure Count",
+                "Duration",
+                "Currently Running",
+            ],
+            rowFun=row_fun,
+            headerFun=lambda x: x,
+            rendererFun=renderer_fun,
+        )
+
+        layout += cells.HorizontalSequence(
+            [
+                cells.Sequence(
+                    [
+                        cells.Button("See diff", "/diff"),
+                        cells.Button("Rerun all tests", "/rerun_all_tests"),
+                        cells.Button("Rerun failed tests", "/rerun_failed_tests"),
+                        cells.Button("Configure rerun", "/configure_rerun"),
+                    ]
+                ),
+                table,
+            ]
+        )
+        return layout
 
 
 @repo_schema.define

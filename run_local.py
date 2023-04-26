@@ -18,17 +18,18 @@ import sys
 import tempfile
 import time
 
-from object_database.service_manager.ServiceManager import ServiceManager
-
-from testlooper.service import TestlooperService
-
-from object_database.web.ActiveWebServiceSchema import active_webservice_schema
-from object_database.web.ActiveWebService import ActiveWebService
 from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
+from object_database.service_manager.ServiceManager import ServiceManager
 from object_database.util import genToken
+from object_database.web.ActiveWebService import ActiveWebService
+from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
-from testlooper.repo_schema import repo_schema, RepoConfig, Repo, Commit, Branch
+
+from testlooper import TL_SERVICE_NAME
+from testlooper.repo_schema import Branch, Commit, Repo, RepoConfig
+from testlooper.schemas import repo_schema
+from testlooper.service import TestlooperService
 
 
 def main(argv=None):
@@ -88,7 +89,7 @@ def main(argv=None):
 
             with database.transaction():
                 service = ServiceManager.createOrUpdateService(
-                    TestlooperService, "TestlooperService", target_count=1
+                    TestlooperService, TL_SERVICE_NAME, target_count=1
                 )
 
             # populate our db.

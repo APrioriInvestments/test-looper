@@ -1,5 +1,7 @@
 """
-Validates and parses query arguments
+Validates and parses query arguments.
+
+NB: not currently in use.
 """
 from dataclasses import dataclass
 
