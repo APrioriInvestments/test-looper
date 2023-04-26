@@ -1,13 +1,13 @@
 import logging
 
 from typed_python import Alternative, OneOf
-from object_database import Schema, Indexed, Index
+from object_database import Indexed, Index
+
+from .schema_declarations import repo_schema
 
 
 logger = logging.getLogger(__name__)
 
-# schema for test-looper repository objects
-repo_schema = Schema("testlooper_repo")
 
 # describe generic services, which can provide lots of different repos
 GitService = Alternative(

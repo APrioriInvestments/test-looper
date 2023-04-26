@@ -1,10 +1,7 @@
 from typed_python import OneOf, TupleOf, NamedTuple, ListOf, ConstDict
-from object_database import Schema, Indexed, Index, SubscribeLazilyByDefault
-from .repo_schema import repo_schema
+from object_database import Indexed, Index, SubscribeLazilyByDefault
 
-# schema for test-looper test objects
-test_schema = Schema("test_looper_test")
-
+from .schema_declarations import repo_schema, test_schema
 
 TestFilter = NamedTuple(
     # Result is tests that satisfy:
