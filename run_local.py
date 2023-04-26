@@ -36,18 +36,18 @@ def main(argv=None):
         argv = sys.argv
 
     token = genToken()
-    httpPort = 8001
-    odbPort = 8021
+    http_port = 8001
+    odb_port = 8021
     loglevel_name = "INFO"
 
-    with tempfile.TemporaryDirectory() as tmpDirName:
+    with tempfile.TemporaryDirectory() as tmp_dirname:
         server = None
         try:
             server = startServiceManagerProcess(
-                tmpDirName, odbPort, token, loglevelName=loglevel_name, logDir=False
+                tmp_dirname, odb_port, token, loglevelName=loglevel_name, logDir=False
             )
 
-            database = connect("localhost", odbPort, token, retry=True)
+            database = connect("localhost", odb_port, token, retry=True)
             database.subscribeToSchema(
                 core_schema,
                 service_schema,
@@ -65,7 +65,7 @@ def main(argv=None):
                 service,
                 [
                     "--port",
-                    str(httpPort),
+                    str(http_port),
                     "--internal-port",
                     "8001",
                     "--host",
