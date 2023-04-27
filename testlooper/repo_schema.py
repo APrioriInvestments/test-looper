@@ -94,6 +94,11 @@ class Commit:
         logger.info(f"Clearing Test Results for commit {self.hash}")
         pass
 
+    def get_closest_branch(self):
+        """Returns the first branch reached by doing a breadth-first-serach on children."""
+        # TODO
+        pass
+
 
 @repo_schema.define
 class CommitParent:

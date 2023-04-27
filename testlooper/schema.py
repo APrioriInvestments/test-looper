@@ -11,12 +11,11 @@ test_looper_schema = Schema("test_looper")
 ArtifactStorageConfig = Alternative(
     "ArtifactStorageConfig",
     LocalDisk=dict(
-        path_to_build_artifacts=str,
-        path_to_test_artifacts=str,
+        root_path=str,
+        build_artifact_prefix=str,
+        test_artifact_prefix=str,
     ),
-    S3=dict(
-        bucket=str, region=str, build_artifact_key_prefix=str, test_artifact_key_prefix=str
-    ),
+    S3=dict(bucket=str, region=str, build_artifact_prefix=str, test_artifact_prefix=str),
     # TODO: something else fancy?
 )
 

@@ -1,4 +1,4 @@
-from typed_python import OneOf, TupleOf, NamedTuple, ListOf, ConstDict
+from typed_python import OneOf, TupleOf, NamedTuple, ListOf, ConstDict, Alternative, Dict
 from object_database import Indexed, Index, SubscribeLazilyByDefault
 
 from .schema_declarations import repo_schema, test_schema
@@ -29,22 +29,83 @@ TestConfiguration = NamedTuple(
 
 @test_schema.define
 class BranchTestConfiguration:
+    """Describes our desired TestConfiguration for a branch.
+
+    We can have at most one BranchTestConfiguration per repo_schema.Branch instance
+
+    Each time new commits appear on a branch that has a BranchTestConfiguration
+    associated with it, a corresponding CommitTestConfiguration is created for
+    top commit of that branch.
+    """
+
     branch = Indexed(repo_schema.Branch)
     config = TestConfiguration
+
+    def apply_to(self, commit):
+        assert isinstance(commit, repo_schema.Commit), commit
+
+        commit_config = test_schema.CommitTestConfiguration.lookupUnique(commit=commit)
+        if commit_config is None:
+            test_schema.CommitTestConfiguration(commit=commit, config=self.config)
+
+        else:
+            commit_config.update_config(self.config)
 
 
 @test_schema.define
 class CommitTestConfiguration:
+    """Describes our desired TestConfiguration for a commit
+
+    We can have at most one CommitTestConfiguration per repo_schema.Commit instance.
+
+    These objects are created by applying a BranchTestConfiguration to a commit.
+    """
+
     commit = Indexed(repo_schema.Commit)
     config = TestConfiguration
 
     # Index plan to easily grab those whose plan needs to be generated
-    plan = Indexed(OneOf(None, test_schema.TestPlan))
+    test_plan = Indexed(OneOf(None, test_schema.TestPlan))
+    test_suites = Dict(str, test_schema.TestSuite)
+
+    def update_config(self, config):
+        # TODO: do we need to trigger engine events such as TestSuiteGenerationTask?
+        self.config = config
+
+    def set_test_plan(self, test_plan):
+        assert isinstance(test_plan, test_schema.TestPlan), test_plan
+
+        if self.test_plan is not None:
+            raise RuntimeError(
+                f"Cannot set_test_pan on commit {self.commit.hash} because it already has one"
+            )
+
+        self.test_plan = test_plan
+
+
+Image = Alternative(
+    "Image",
+    AMI=dict(name=str),
+    DockerImage=dict(name=str),
+    Dockerfile=dict(path=str),
+)
+
+
+@test_schema.define
+class Environment:
+    """An environment where tests may run"""
+
+    name = str
+    variables = ConstDict(str, str)  # Environment Variables
+    image = Image
+    min_ram_gb = float
+    min_cores = int
+    custom_setup = str  # additional bash commands to set up the environment
 
 
 @test_schema.define
 class TestPlan:
-    plan = str  # YAML file contents or path
+    plan = str  # contents of YAML file
 
 
 @test_schema.define
@@ -54,10 +115,12 @@ class TestSuite:
     Generated when list-tests for this suite is executed because we want to
     run some of its tests.
 
-    The 'parent' allows us to track suites over time as tests get added, removed, renamed, etc
+    The 'parent' allows us to track test-suites over time as tests get added,
+    removed, renamed, etc
     """
 
     name = Indexed(str)
+    environment = test_schema.Environment
     tests = TupleOf(test_schema.Test)  # unique; sorted treated as a frozenset
 
     parent = OneOf(None, test_schema.TestSuite)  # Most recent ancestor
@@ -76,6 +139,24 @@ class TestSuite:
     def new_tests(self):
         """Returns a list of tests that are new in this test-suite"""
         return [test for test in self.tests if test.is_new]
+
+    def deleted_tests(self):
+        """Return a list of test from the parent test suite that we don't have."""
+        if self.parent is None:
+            return []
+
+        parent_tests = {test.name: test for test in self.parent.tests}
+        for test in self.tests:
+            if test.parent is not None:
+                del parent_tests[test.parent.name]
+
+        return list(parent_tests.values())
+
+    def renamed_tests(self):
+        if self.parent is None:
+            return []
+
+        return [test for test in self.tests if test.parent and test.parent.name != test.name]
 
 
 @test_schema.define
