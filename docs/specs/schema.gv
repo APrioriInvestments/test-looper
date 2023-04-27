@@ -1,0 +1,69 @@
+digraph G {
+	graph [layout=dot rankdir=TB]
+
+// This is just an example for you to use as a template.
+// Edit as you like. Whenever you save a legal graph
+// the layout in the graphviz window will be updated.
+
+    // Repo Schema ODB Types
+    node [color=black, shape=oval]
+	Repo
+
+    Branch
+    Commit
+    Commit
+
+    // node [color=black, shape=box]
+    // RepoConfig
+
+    // Repo Schema Edges
+	//Repo -> RepoConfig
+
+    Branch -> Repo
+    Repo -> Branch [label=primary_branch style=dashed]
+
+    Commit -> Repo
+    Branch -> Commit [label=top_commit style=dashed]
+
+    // Test Schema ODB Types
+    node [color=blue, shape=oval]
+    BranchTestConfiguration
+    CommitTestConfiguration
+    TestPlan
+    TestSuite
+    Test
+
+    TestResults
+
+    // Test Schema Auxiliary Types
+    // node [color=blue, shape=box]
+    // TestFilter
+    // TestConfiguration
+    // Outcome
+    // StageResult
+    // TestRunResult
+
+    // Test Schema Edges
+    //TestConfiguration -> TestFilter
+    BranchTestConfiguration -> Branch
+    //BranchTestConfiguration -> TestConfiguration
+
+    CommitTestConfiguration -> Commit
+    CommitTestConfiguration -> TestPlan
+    CommitTestConfiguration -> TestSuite
+    //CommitTestConfiguration -> TestConfiguration
+
+    TestSuite -> TestSuite
+    TestSuite -> Test
+
+    Test -> Test
+
+    TestResults -> Test
+    TestResults -> Commit
+    //TestResults -> TestRunResult
+
+    //TestRunResult -> Outcome
+    //TestRunResult -> StageResult -> Outcome
+
+   TestPlan -> TestSuite [label=TestSuiteGenerationTask, style=dotted]
+}

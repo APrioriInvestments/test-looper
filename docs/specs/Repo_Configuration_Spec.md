@@ -20,7 +20,7 @@
 
 Entrypoint is still this file that has to be somewhere in the repo:
 
-`.test-looper/config.yaml`:
+`.testlooper/config.yaml`:
 ```
 version: X.Y
 os: linux
@@ -30,26 +30,28 @@ variables:
 
 image:
     # one of several ways to define the image in which we're going to run.
-    ami: someAmiName
-    dockerfile: path-in-repo
+    ami: some AWS AMI name
+    docker-image: some docker image e.g., dockerhub.private-org.com:5000/testlooper:4589c1d02
+    dockerfile: relative in-repo path to dockerfile or to directory containing a 'Dockerfile'
+
 
 generate-test-plan: |
-    # some bash code to run that produces the actual test definitions and environments
-    # can assume we have defined the following environment variables:
-    # REPO_ROOT - path to the current checked out repo, which will also be the CWD
-    # TEST_PLAN_OUTPUT - path to where we expect the produced test plan to go
+    # Some bash code to run that produces the actual test-suite definitions and environments.
+    # We can assume we have defined the following environment variables:
+    #   - REPO_ROOT: path to the current checked out repo, which will also be the CWD
+    #   - TEST_PLAN_OUTPUT: path to where we expect the produced test plan to go
 ```
 Example:
 ```
 version: 1.0
 image:
-     dockerfile: .test-looper/config-Dockerfile
+     dockerfile: .testlooper/environments/plan-generation/Dockerfile
 
 variables:
     PYTHONPATH: ${REPO_ROOT}
 
 command:
-    python -m .test-looper/generate_test_plan.py  --out ${TEST_PLAN_OUTPUT}
+    python .testlooper/generate_test_plan.py  --out ${TEST_PLAN_OUTPUT}
 ```
 
 test outputs are expected to define the following things: 
@@ -63,7 +65,7 @@ An environment specifies the context in which a build or a test runs (OS, instal
 ```
 environments:
     environment_name:
-        image:  # ami | dockerfile
+        image:  # ami | dockerfile | docker-image
         variables:
             VAR1: Value1
             VAR2: Value2
@@ -124,13 +126,12 @@ suites:
 ```
 
 Examples:
-
 ```
 environments:
     # linux docker container for running our pytest unit-tests
     linux-pytest:
         image:
-            dockerfile: .test-looper/linux-pytest-PytestDockerfile
+            dockerfile: .testlooper/environments/linux-pytest/Dockerfile
         variables:
             PYTHONPATH: ${REPO_ROOT}
             TP_COMPILER_CACHE: /tp_compiler_cache
@@ -155,25 +156,25 @@ suites:
         kind: unit
         environment: linux-pytest
         list-tests: |
-            .test-looper/collect-pytest-tests.sh -m 'not docker'
+            .testlooper/collect-pytest-tests.sh -m 'not docker'
         run-tests: |
-            .test-looper/run-pytest-tests.sh
+            .testlooper/run-pytest-tests.sh
 
     pytest-docker:
         kind: unit
         environment: linux-native
         list-tests: |
-            .test-looper/collect-pytest-tests.sh -m 'docker'
+            .testlooper/collect-pytest-tests.sh -m 'docker'
         run-tests: |
-            .test-looper/run-pytest-tests.sh
+            .testlooper/run-pytest-tests.sh
 
     matlab:
         kind: unit
         environment: linux-native
         list-tests: |
-            .test-looper/collect-matlab-tests.sh
+            .testlooper/collect-matlab-tests.sh
         run-tests: |
-            .test-looper/run-matlab-tests.sh
+            .testlooper/run-matlab-tests.sh
 ```
 
 ### Format for the output of list-tests
