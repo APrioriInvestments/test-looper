@@ -197,7 +197,8 @@ StageResult = NamedTuple(duration=float, outcome=Outcome)
 TestRunResult = NamedTuple(
     uuid=str,  # guid we can use to pull relevant logs from the artifact store
     outcome=Outcome,
-    duration=float,
+    duration_ms=float,  # time taken in ms
+    start_time=int,  # epoch time
     stages=ConstDict(str, StageResult),  # stages are usually setup | call | teardown
 )
 

@@ -1,6 +1,6 @@
 """Define the core objects and ODB schema for test-looper."""
 from typed_python import OneOf, Alternative, TupleOf, Dict, NamedTuple
-from object_database import Schema, Indexed, Index, SubscribeLazilyByDefault
+from object_database import Schema, Indexed, Index
 from .repo_schema import Commit
 
 
@@ -55,15 +55,6 @@ TestNodeDefinition = Alternative(
         listTests=Command,
         runTests=Command,
     ),
-)
-
-
-TestResult = NamedTuple(
-    # guid we can use to pull relevant logs from the artifact store
-    testId=str,
-    success=bool,
-    startTime=float,
-    executionTime=float,
 )
 
 
@@ -172,14 +163,6 @@ class TestNode:
 
     # crude proxy for the state machine we'll need to decide what to build/run
     needsMoreWork = Indexed(bool)
-
-
-@test_looper_schema.define
-@SubscribeLazilyByDefault
-class TestResults:
-    node = Indexed(TestNode)
-
-    testResults = Dict(str, TupleOf(TestResult))
 
 
 @test_looper_schema.define

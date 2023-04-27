@@ -3,9 +3,8 @@ import logging
 import object_database.web.cells as cells
 from object_database import Index, Indexed
 
-from . import TL_SERVICE_NAME
 from .schema_declarations import repo_schema, ui_schema
-from .utils import get_tl_link
+from .utils import HEADER_FONTSIZE, add_menu_bar, get_tl_link, TL_SERVICE_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -67,15 +66,9 @@ class BranchView:
             return get_tl_link(bv)
 
         repo = self.branch.repo
-        layout = cells.HorizontalSequence(
-            [
-                cells.Button("TL", f"/services/{TL_SERVICE_NAME}"),
-                cells.Button(repo.name, get_tl_link(repo)),
-                cells.Button(self.branch.name, branch_view_on_click),
-            ],
-            margin=100,
+        layout = cells.Padding(bottom=20) * cells.Text(
+            "Branch: " + self.branch.name, fontSize=HEADER_FONTSIZE
         )
-        layout += cells.Text("Branch: " + self.branch.name, fontSize=20)
         layout += cells.Table(
             colFun=lambda: [
                 "Hash",
@@ -89,4 +82,11 @@ class BranchView:
             headerFun=lambda x: x,
             rendererFun=rendererFun,
         )
-        return layout
+        return add_menu_bar(
+            cells.HCenter(layout),
+            {
+                "TL": f"/services/{TL_SERVICE_NAME}",
+                repo.name: get_tl_link(repo),
+                self.branch.name: branch_view_on_click,
+            },
+        )

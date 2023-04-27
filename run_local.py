@@ -26,7 +26,7 @@ from object_database.web.ActiveWebService import ActiveWebService
 from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
 
-from testlooper import TL_SERVICE_NAME
+from testlooper.utils import TL_SERVICE_NAME
 from testlooper.repo_schema import Branch, Commit, Repo, RepoConfig
 from testlooper.schemas import repo_schema
 from testlooper.service import TestlooperService
@@ -123,7 +123,7 @@ def main(argv=None):
                 branch = Branch(repo=repo, name="dev", top_commit=commits[0])
                 repo.primary_branch = branch
 
-                # print("created repo", repo, "commit", commit, "branch", branch)
+                # generate some fake test results
 
             while True:
                 time.sleep(0.1)

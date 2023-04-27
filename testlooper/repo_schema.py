@@ -5,8 +5,7 @@ from object_database import Index, Indexed
 from typed_python import Alternative, ConstDict, OneOf
 
 from .schema_declarations import repo_schema, ui_schema
-from . import TL_SERVICE_NAME
-from .utils import get_tl_link
+from .utils import HEADER_FONTSIZE, get_tl_link, add_menu_bar, TL_SERVICE_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -59,22 +58,16 @@ class Repo:
 
     def display_cell(self) -> cells.Cell:
         """Returns the Cells object for the repo page."""
-        # common layout, should eventually be refactored out.
-        layout = cells.HorizontalSequence(
-            [
-                cells.Button("TL", f"/services/{TL_SERVICE_NAME}"),
-                cells.Button(self.name, get_tl_link(self)),
-            ],
-            margin=100,
-        )
-        layout += cells.Text("Repo: " + self.name, fontSize=20)
+        layout = cells.Padding(bottom=20) * cells.Text(self.name, fontSize=HEADER_FONTSIZE)
         layout += cells.HorizontalSequence(
             [
-                cells.Button("View test_definitions file", "/td"),
-                cells.Button("View test plan generator", "/tpg"),
-                cells.Button("View test plan", "/tp"),
-            ],
-            margin=100,
+                cells.Padding(padding=10) * b
+                for b in [
+                    cells.Button("View test_definitions file", "/td"),
+                    cells.Button("View test plan generator", "/tpg"),
+                    cells.Button("View test plan", "/tp"),
+                ]
+            ]
         )
 
         # table with the branch information for this repo
@@ -101,9 +94,11 @@ class Repo:
                         "Latest Commit": cells.Clickable(
                             branch.top_commit.hash, get_tl_link(branch.top_commit)
                         ),
-                        "Rerun All Tests": cells.Button("", "/rerun_all_tests"),
-                        "Rerun Most Recent Failed Tests": cells.Button(
-                            "", "/rerun_failed_tests"
+                        "Rerun All Tests": cells.HCenter(
+                            cells.Button("", branch.top_commit.rerun_all_tests)
+                        ),
+                        "Rerun Most Recent Failed Tests": cells.HCenter(
+                            cells.Button("", branch.top_commit.rerun_failed_tests)
                         ),
                     }
                 )
@@ -130,7 +125,10 @@ class Repo:
             sortColumn="Last Run",
         )
         layout += cells.Card(repo_table)
-        return layout
+        return add_menu_bar(
+            cells.HCenter(layout),
+            {"TL": f"/services/{TL_SERVICE_NAME}", self.name: get_tl_link(self)},
+        )
 
 
 @repo_schema.define
@@ -176,19 +174,18 @@ class Commit:
         # TODO
         pass
 
+    def rerun_all_tests(self):
+        # TODO
+        logger.info(f"Rerunning all tests for commit {self.hash}")
+
+    def rerun_failed_tests(self):
+        # TODO
+        logger.info(f"Rerunning failed tests for commit {self.hash}")
+
     def display_cell(self) -> cells.Cell:
         """Called by serviceDisplay, returns the Cell for the page representing this commit."""
-        # common layout for header bar, should eventually be refactored out.
-        layout = cells.HorizontalSequence(
-            [
-                cells.Button("TL", f"/services/{TL_SERVICE_NAME}"),
-                cells.Button(self.repo.name, get_tl_link(self.repo)),
-                cells.Button(self.hash, get_tl_link(self)),
-            ],
-            margin=100,
-        )
-        layout += cells.Text("Commit: " + self.hash, fontSize=20)
-        layout += cells.Text(self.commit_text)
+        layout = cells.Text("Commit: " + self.hash, fontSize=HEADER_FONTSIZE)
+        layout += cells.Padding(bottom=20) * cells.Text(self.commit_text)
 
         # table with test run info for this commit
         def row_fun():
@@ -231,15 +228,22 @@ class Commit:
                 cells.Sequence(
                     [
                         cells.Button("See diff", "/diff"),
-                        cells.Button("Rerun all tests", "/rerun_all_tests"),
-                        cells.Button("Rerun failed tests", "/rerun_failed_tests"),
+                        cells.Button("Rerun all tests", self.rerun_all_tests),
+                        cells.Button("Rerun failed tests", self.rerun_failed_tests),
                         cells.Button("Configure rerun", "/configure_rerun"),
                     ]
                 ),
                 table,
             ]
         )
-        return layout
+        return add_menu_bar(
+            cells.HCenter(layout),
+            {
+                "TL": f"/services/{TL_SERVICE_NAME}",
+                self.repo.name: get_tl_link(self.repo),
+                self.hash: get_tl_link(self),
+            },
+        )
 
 
 @repo_schema.define

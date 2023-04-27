@@ -14,7 +14,7 @@ from object_database import ServiceBase
 from typed_python import ConstDict
 
 from .schemas import repo_schema, ui_schema
-from .utils import get_tl_link
+from .utils import get_tl_link, add_menu_bar, HEADER_FONTSIZE
 
 logger = logging.getLogger(__name__)
 
@@ -95,9 +95,9 @@ class Homepage:
 
         # TODO use a headerbar
         # reload_button = cells.Button("Reload", reload)
-        layout = cells.HorizontalSequence(
-            [cells.Button("TL", f"{service_object.name}")], margin=10
-        )
+        # layout = cells.HorizontalSequence(
+        #     [cells.Button("TL", f"{service_object.name}")], margin=10
+        # )
 
         repo_table = cells.Table(
             colFun=lambda: [
@@ -117,6 +117,19 @@ class Homepage:
             sortColumn="Name",
         )
 
-        layout += cells.Text("Repos")
+        layout = cells.Padding(bottom=20) * cells.Text("Repos", fontSize=HEADER_FONTSIZE)
         layout += cells.Card(repo_table)
-        return layout
+
+        machines_table = cells.Table(
+            colFun=lambda: ["Machine ID", "Hardware", "OS", "Uptime", "Status", "Logs"],
+            rowFun=lambda: [],
+            headerFun=lambda x: x,
+            rendererFun=lambda data, field: data[field],
+            maxRowsPerPage=100,
+            sortColumn="Machine ID",
+        )
+
+        layout += cells.Padding(top=50) * cells.Text(
+            "Machines", fontSize=HEADER_FONTSIZE
+        ) + cells.Card(machines_table)
+        return add_menu_bar(cells.HCenter(layout), {"TL": service_object.name})
