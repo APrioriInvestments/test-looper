@@ -19,3 +19,6 @@ requires-python = ">=3.8"
 dependencies = [
     "object_database @ git+https://github.com/APrioriInvestments/object_database.git@b047bdc2a8dabc5d954599a441b3da23a83b50d9#egg=object_database=999.999.999",
 ]
+
+[project.optional-dependencies]
+dev = ["pre-commit"]
