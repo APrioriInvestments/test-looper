@@ -30,9 +30,11 @@ variables:
 
 image:
     # one of several ways to define the image in which we're going to run.
-    ami: some AWS AMI name
-    docker-image: some docker image e.g., dockerhub.private-org.com:5000/testlooper:4589c1d02
-    dockerfile: relative in-repo path to dockerfile or to directory containing a 'Dockerfile'
+    aws-ami: some AWS AMI name
+    docker:
+        image: some docker image e.g., dockerhub.private-org.com:5000/testlooper:4589c1d02
+        dockerfile: relative in-repo path to dockerfile or to directory containing a 'Dockerfile'
+        with-docker: bool  # Whether we should mount the docker service socket.
 
 
 generate-test-plan: |
@@ -45,7 +47,9 @@ Example:
 ```
 version: 1.0
 image:
-     dockerfile: .testlooper/environments/plan-generation/Dockerfile
+     docker:
+        dockerfile: .testlooper/environments/plan-generation/Dockerfile
+        with-docker: true
 
 variables:
     PYTHONPATH: ${REPO_ROOT}
@@ -65,7 +69,7 @@ An environment specifies the context in which a build or a test runs (OS, instal
 ```
 environments:
     environment_name:
-        image:  # ami | dockerfile | docker-image
+        image:  # aws-ami | docker
         variables:
             VAR1: Value1
             VAR2: Value2
@@ -131,7 +135,8 @@ environments:
     # linux docker container for running our pytest unit-tests
     linux-pytest:
         image:
-            dockerfile: .testlooper/environments/linux-pytest/Dockerfile
+            docker:
+                dockerfile: .testlooper/environments/linux-pytest/Dockerfile
         variables:
             PYTHONPATH: ${REPO_ROOT}
             TP_COMPILER_CACHE: /tp_compiler_cache

@@ -11,7 +11,7 @@ digraph G {
 
     Branch
     Commit
-    Commit
+    TestConfig
 
     // node [color=black, shape=box]
     // RepoConfig
@@ -23,12 +23,13 @@ digraph G {
     Repo -> Branch [label=primary_branch style=dashed]
 
     Commit -> Repo
+    Commit -> TestConfig
     Branch -> Commit [label=top_commit style=dashed]
 
     // Test Schema ODB Types
     node [color=blue, shape=oval]
-    BranchTestConfiguration
-    CommitTestConfiguration
+    BranchDesiredTesting
+    CommitDesiredTesting
     TestPlan
     TestSuite
     Test
@@ -45,13 +46,13 @@ digraph G {
 
     // Test Schema Edges
     //TestConfiguration -> TestFilter
-    BranchTestConfiguration -> Branch
-    //BranchTestConfiguration -> TestConfiguration
+    BranchDesiredTesting -> Branch
+    //BranchDesiredTesting -> TestConfiguration
 
-    CommitTestConfiguration -> Commit
-    CommitTestConfiguration -> TestPlan
-    CommitTestConfiguration -> TestSuite
-    //CommitTestConfiguration -> TestConfiguration
+    CommitDesiredTesting -> Commit
+    CommitDesiredTesting -> TestPlan
+    CommitDesiredTesting -> TestSuite
+    //CommitDesiredTesting -> TestConfiguration
 
     TestSuite -> TestSuite
     TestSuite -> Test

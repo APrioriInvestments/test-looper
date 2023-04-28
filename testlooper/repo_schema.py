@@ -133,6 +133,13 @@ class Repo:
 
 
 @repo_schema.define
+class TestConfig:
+    """Contains the text of the .testlooper/config.yaml for one or more commits."""
+
+    config = Indexed(str)
+
+
+@repo_schema.define
 class Commit:
     hash = Indexed(str)
     repo = Indexed(Repo)
@@ -141,9 +148,7 @@ class Commit:
     commit_text = str
     author = str
 
-    # allows us to ask which commits need us to parse their tests. One of our services
-    # is a little state machine that will run through Commit objects that are not parsed
-    test_plan_generated = Indexed(bool)
+    test_config = repo_schema.TestConfig
 
     @property
     def parents(self):

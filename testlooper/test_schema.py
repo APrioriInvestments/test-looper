@@ -3,6 +3,7 @@ from object_database import Indexed, Index, SubscribeLazilyByDefault
 
 from .schema_declarations import repo_schema, test_schema
 
+
 TestFilter = NamedTuple(
     # Result is tests that satisfy:
     # Intersection(
@@ -18,7 +19,7 @@ TestFilter = NamedTuple(
 )
 
 
-TestConfiguration = NamedTuple(
+DesiredTesting = NamedTuple(
     runs_desired=int,
     fail_runs_desired=int,  # how many runs for any tests that fail
     flake_runs_desired=int,  # how many runs for tests that are known to flake
@@ -28,49 +29,51 @@ TestConfiguration = NamedTuple(
 
 
 @test_schema.define
-class BranchTestConfiguration:
-    """Describes our desired TestConfiguration for a branch.
+class BranchDesiredTesting:
+    """Describes our DesiredTesting config for a branch.
 
-    We can have at most one BranchTestConfiguration per repo_schema.Branch instance
+    We can have at most one BranchDesiredTesting per repo_schema.Branch instance
 
-    Each time new commits appear on a branch that has a BranchTestConfiguration
-    associated with it, a corresponding CommitTestConfiguration is created for
+    Each time new commits appear on a branch that has a BranchDesiredTesting
+    associated with it, a corresponding CommitDesiredTesting is created for
     top commit of that branch.
     """
 
     branch = Indexed(repo_schema.Branch)
-    config = TestConfiguration
+    desired_testing = DesiredTesting
 
     def apply_to(self, commit):
         assert isinstance(commit, repo_schema.Commit), commit
 
-        commit_config = test_schema.CommitTestConfiguration.lookupUnique(commit=commit)
-        if commit_config is None:
-            test_schema.CommitTestConfiguration(commit=commit, config=self.config)
+        commit_dt = test_schema.CommitDesiredTesting.lookupUnique(commit=commit)
+        if commit_dt is None:
+            test_schema.CommitDesiredTesting(
+                commit=commit, desired_testing=self.desired_testing
+            )
 
         else:
-            commit_config.update_config(self.config)
+            commit_dt.update_desired_testing(self.desired_testing)
 
 
 @test_schema.define
-class CommitTestConfiguration:
-    """Describes our desired TestConfiguration for a commit
+class CommitDesiredTesting:
+    """Describes our desired DesiredTesting for a commit
 
-    We can have at most one CommitTestConfiguration per repo_schema.Commit instance.
+    We can have at most one CommitDesiredTesting per repo_schema.Commit instance.
 
-    These objects are created by applying a BranchTestConfiguration to a commit.
+    These objects are created by applying a BranchDesiredTesting to a commit.
     """
 
     commit = Indexed(repo_schema.Commit)
-    config = TestConfiguration
+    desired_testing = DesiredTesting
 
     # Index plan to easily grab those whose plan needs to be generated
     test_plan = Indexed(OneOf(None, test_schema.TestPlan))
     test_suites = Dict(str, test_schema.TestSuite)
 
-    def update_config(self, config):
+    def update_desired_testing(self, desired_testing):
         # TODO: do we need to trigger engine events such as TestSuiteGenerationTask?
-        self.config = config
+        self.desired_testing = desired_testing
 
     def set_test_plan(self, test_plan):
         assert isinstance(test_plan, test_schema.TestPlan), test_plan
@@ -105,7 +108,9 @@ class Environment:
 
 @test_schema.define
 class TestPlan:
-    plan = str  # contents of YAML file
+    """Contents of YAML file produced by running generate-test-plan on a Commit."""
+
+    plan = Indexed(str)
 
 
 @test_schema.define
@@ -124,15 +129,14 @@ class TestSuite:
     tests = TupleOf(test_schema.Test)  # unique; sorted treated as a frozenset
 
     parent = OneOf(None, test_schema.TestSuite)  # Most recent ancestor
-    _hash = int
+    _hash = OneOf(None, int)
 
     @property
     def is_new(self):
         return True if self.parent is None else False
 
-    @property
-    def hash(self):
-        if not self._hash:
+    def __hash__(self):
+        if self._hash is None:
             self._hash = hash(tuple(hash(test.name) for test in self.tests))
         return self._hash
 
