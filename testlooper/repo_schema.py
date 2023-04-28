@@ -1,11 +1,12 @@
 import logging
+from collections import deque
 
 import object_database.web.cells as cells
 from object_database import Index, Indexed
 from typed_python import Alternative, ConstDict, OneOf
 
 from .schema_declarations import repo_schema, ui_schema
-from .utils import HEADER_FONTSIZE, get_tl_link, add_menu_bar, TL_SERVICE_NAME
+from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
 
 logger = logging.getLogger(__name__)
 
@@ -169,10 +170,32 @@ class Commit:
         logger.info(f"Clearing Test Results for commit {self.hash}")
         pass
 
-    def get_closest_branch(self):
-        """Returns the first branch reached by doing a breadth-first-serach on children."""
-        # TODO
-        pass
+    def get_closest_branch(self, max_depth=100):
+        """Returns the branch with top_commit closest to this commit (or None if not found)"""
+        queue = deque([(self, 0)])  # queue for BFS, with (commit, depth) pairs
+        visited = set()  # set to store visited commits
+
+        while queue:
+            current_commit, depth = queue.popleft()
+            if depth > max_depth:
+                return None  # no branch was found in sufficient depth
+
+            if current_commit in visited:
+                continue
+
+            visited.add(current_commit)
+
+            # Check if the current commit is in any branch
+            branches = repo_schema.Branch.lookupAll(top_commit=current_commit)
+            if branches:
+                return branches[0]  # return the first branch found
+
+            # Add children to the queue
+            children = repo_schema.CommitParent.lookupAll(parent=current_commit)
+            for child in children:
+                queue.append((child.child, depth + 1))
+
+        return None  # no branch was found for the given commit
 
     def rerun_all_tests(self):
         # TODO
@@ -262,4 +285,4 @@ class Branch:
     name = str
 
     repo_and_name = Index("repo", "name")
-    top_commit = Commit
+    top_commit = Indexed(Commit)
