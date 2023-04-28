@@ -88,9 +88,8 @@ class CommitDesiredTesting:
 
 Image = Alternative(
     "Image",
-    AMI=dict(name=str),
-    DockerImage=dict(name=str),
-    Dockerfile=dict(path=str),
+    AwsAmi=dict(name=str),
+    DockerImage=dict(name=str, with_docker=bool, from_dockerfile=OneOf(None, str)),
 )
 
 
