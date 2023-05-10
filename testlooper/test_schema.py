@@ -67,9 +67,8 @@ class CommitDesiredTesting:
     commit = Indexed(repo_schema.Commit)
     desired_testing = DesiredTesting
 
-    # Index plan to easily grab those whose plan needs to be generated
-    test_plan = Indexed(OneOf(None, test_schema.TestPlan))
-    test_suites = Dict(str, test_schema.TestSuite)
+    test_plan = OneOf(None, test_schema.TestPlan)  # None when pending generation
+    test_suites = Dict(str, OneOf(None, test_schema.TestSuite))  # None when pending generation
 
     def update_desired_testing(self, desired_testing):
         # TODO: do we need to trigger engine events such as TestSuiteGenerationTask?
@@ -125,9 +124,8 @@ class TestSuite:
 
     name = Indexed(str)
     environment = test_schema.Environment
-    tests = TupleOf(test_schema.Test)  # unique; sorted treated as a frozenset
+    tests = ConstDict(str, test_schema.Test)
 
-    parent = OneOf(None, test_schema.TestSuite)  # Most recent ancestor
     _hash = OneOf(None, int)
 
     @property
@@ -136,7 +134,7 @@ class TestSuite:
 
     def __hash__(self):
         if self._hash is None:
-            self._hash = hash(tuple(hash(test.name) for test in self.tests))
+            self._hash = hash(tuple(hash(test) for test in self.tests.values()))
         return self._hash
 
     def new_tests(self):
@@ -161,6 +159,29 @@ class TestSuite:
 
         return [test for test in self.tests if test.parent and test.parent.name != test.name]
 
+    @staticmethod
+    def for_commit(name, commit):
+        """Find the TestSuite that corresponds to a commit."""
+        testing_config = test_schema.CommitDesiredTesting.lookupUnique(commit=commit)
+        if testing_config is None:
+            return None
+
+        return testing_config.test_suites.get(name, None)
+
+
+@test_schema.define
+class TestSuiteParent:
+    parent = Indexed(TestSuite)
+    child = Indexed(TestSuite)
+
+    parent_and_child = Index("parent", "child")
+
+    commit_parent = repo_schema.CommitParent
+
+
+class Unknown:
+    pass
+
 
 @test_schema.define
 class Test:
@@ -172,15 +193,60 @@ class Test:
     """
 
     name = Indexed(str)
-    labels = TupleOf(str)
+    labels = TupleOf(str)  # sorted or frozenset
     name_and_labels = Index("name", "labels")  # unique
     path = str
 
-    parent = OneOf(None, test_schema.Test)  # Most recent ancestor
+    _hash = OneOf(None, int)
+
+    def __hash__(self):
+        if self._hash is None:
+            self._hash = hash(tuple(name, tuple(hash(label) for label in self.labels)))
+        return self._hash
+
+    def get_parents(self):
+        return test_schema.TestParent.lookupAll(child=self)
 
     @property
-    def is_new(self):
-        return True if self.parent is None else False
+    def is_new(self) -> bool:
+         return len(self.get_parents()) == 0
+
+    @property
+    def created_since(self, commit):
+        existed = self.exists_in(commit)
+        if existed is Unknown:
+            return Unknown
+        else:
+            return not existed
+
+    @property
+    def exists_in(self, commit):
+        """ True if test exists in commit, False if it doesn't, and Unknown if we don't know."""
+        testing_config = test_schema.CommitDesiredTesting.lookupUnique(commit=commit)
+        if testing_config is None:
+            return Unknown
+
+        missing = False
+        for name, suite in testing_config.test_suites.items():
+            if suite is None:
+                missing = True
+
+            else:
+                for name, test in suite.tests.items():
+                    if self == test:
+                        return True
+
+        return Unknown if missing else False
+
+
+@test_schema.define
+class TestParent:
+    parent = Indexed(Test)
+    child = Indexed(Test)
+
+    parent_and_child = Index("parent", "child")
+
+    commit_parent = repo_schema.CommitParent
 
 
 # outcomes taken from pytest-json-report; append to add more
@@ -268,3 +334,15 @@ class TestResults:
         else:
             # TODO: log an error
             pass
+
+
+def find_most_recent_test_results(test, commit, count=50, depth=1000):
+    """ Return a list of TestRunResult objects for a test starting from a given commit
+
+    We need to walk back the commit history starting from the given commit doing a
+    breadth first search looking for TestResults objects and collecting their TestRunResult
+    objects.
+
+    There are many ways of doing this. For example we could only look at TestResults that
+    match Test exactly, and then priorize by commit proximity, including or excluding commits
+    on other branches. Or we could take into account Test

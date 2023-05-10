@@ -12,7 +12,7 @@ digraph G {
     Branch
     Commit
     TestConfig
-
+    CommitParent
     // node [color=black, shape=box]
     // RepoConfig
 
@@ -25,6 +25,7 @@ digraph G {
     Commit -> Repo
     Commit -> TestConfig
     Branch -> Commit [label=top_commit style=dashed]
+    CommitParent -> Commit
 
     // Test Schema ODB Types
     node [color=blue, shape=oval]
