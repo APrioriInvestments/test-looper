@@ -14,6 +14,8 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+# pyright: reportGeneralTypeIssues=false
+
 import sys
 import tempfile
 import time
@@ -27,9 +29,67 @@ from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
 
 from testlooper.utils import TL_SERVICE_NAME
-from testlooper.repo_schema import Branch, Commit, Repo, RepoConfig
-from testlooper.schemas import repo_schema
+from testlooper.repo_schema import Branch, Commit, Repo, RepoConfig, TestConfig
+from testlooper.engine_schema import Status
+from testlooper.schemas import repo_schema, engine_schema
 from testlooper.service import TestlooperService
+
+
+TEST_PLAN = """
+version: 1
+environments:
+    # linux docker container for running our pytest unit-tests
+    linux-pytest:
+        image:
+            docker:
+                dockerfile: .testlooper/environments/linux-pytest/Dockerfile
+        variables:
+            PYTHONPATH: ${REPO_ROOT}
+            TP_COMPILER_CACHE: /tp_compiler_cache
+            IS_TESTLOOPER: true
+        min-ram-gb: 10
+        custom-setup: |
+            python -m pip install --editable .
+
+    # native linux image necessary for running unit-tests that need to boot docker containers.
+    linux-native:
+        image:
+            base_ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
+        min-ram-gb: 10
+        custom-setup: |
+            sudo apt-get --yes install python3.8-venv
+            make install  # install pinned dependencies
+builds:
+    # skip
+
+suites:
+    pytest:
+        kind: unit
+        environment: linux-pytest
+        dependencies:
+        list-tests: |
+            .testlooper/collect-pytest-tests.sh -m 'not docker'
+        run-tests: |
+            .testlooper/run-pytest-tests.sh
+
+    pytest-docker:
+        kind: unit
+        environment: linux-native
+        dependencies:
+        list-tests: |
+            .testlooper/collect-pytest-tests.sh -m 'docker'
+        run-tests: |
+            .testlooper/run-pytest-tests.sh
+
+    matlab:
+        kind: unit
+        environment: linux-native
+        dependencies:
+        list-tests: |
+            .testlooper/collect-matlab-tests.sh
+        run-tests: |
+            .testlooper/run-matlab-tests.sh
+"""
 
 
 def main(argv=None):
@@ -54,6 +114,7 @@ def main(argv=None):
                 service_schema,
                 active_webservice_schema,
                 repo_schema,
+                engine_schema,
             )
 
             with database.transaction():
@@ -97,15 +158,15 @@ def main(argv=None):
             with database.transaction():
                 # add a repo with branches and commits
                 repo_config = RepoConfig.Local(path="/tmp/test_repo")
-
                 repo = Repo(name="test_repo", config=repo_config)
+                test_config = TestConfig(config="test_config_here", repo=repo)
                 commits.append(
                     Commit(
                         hash="12abc43a",
                         repo=repo,
                         commit_text="test commit",
                         author="test author",
-                        test_plan_generated=False,
+                        test_config=test_config,
                     )
                 )
 
@@ -115,6 +176,7 @@ def main(argv=None):
                         repo=repo,
                         commit_text="initial commit",
                         author="father of this repo",
+                        test_config=test_config,
                     )
                 )
 
@@ -123,10 +185,17 @@ def main(argv=None):
                 branch = Branch(repo=repo, name="dev", top_commit=commits[0])
                 repo.primary_branch = branch
 
-                # generate some fake test results
+                # bootstrap the engine with a mock TestPlanGenerationTask and test plan.
+                task = engine_schema.TestPlanGenerationTask(commit=commits[0], status=Status())
+                result = engine_schema.TestPlanGenerationResult(commit=commits[0],
+                                                                data=TEST_PLAN)
+                print(result.data)
+                task.status.completed()
+                # TODO generate some test results
 
             while True:
                 time.sleep(0.1)
+
         finally:
             if server is not None:
                 server.terminate()

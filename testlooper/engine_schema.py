@@ -1,10 +1,10 @@
 import time
-from object_database import Indexed
-from .schema_declarations import test_schema, engine_schema, repo_schema
-
-
 from enum import Enum
 
+from object_database import Indexed
+from typed_python import Dict, OneOf
+
+from .schema_declarations import engine_schema, repo_schema, test_schema
 
 StatusEvent = Enum("StatusEvent", ["CREATED", "STARTED", "FAILED", "TIMEDOUT", "COMPLETED"])
 
@@ -51,9 +51,9 @@ class TestPlanGenerationTask:
 @engine_schema.define
 class TestPlanGenerationResult:
     """Keep track of a task to generate a test plan."""
-
+    # TODO (Will): resolve the overlap between this and CommitTestDefinition
     commit = repo_schema.Commit
-    data = str  # YAML file of TestPlan
+    data = test_schema.TestPlan  # YAML file of TestPlan
 
 
 @engine_schema.define
@@ -73,8 +73,13 @@ class BuildDockerImageResult:
 class TestSuiteGenerationTask:
     commit = repo_schema.Commit
     environment = test_schema.Environment
+    # map of build name to build path, optional
+    dependencies = OneOf(Dict(str, str), None)
     name = str
     status = Status
+    timeout = OneOf(int, None)  # seconds, optional
+    list_tests_command = str
+    run_tests_command = str
 
 
 @engine_schema.define

@@ -58,7 +58,8 @@ command:
     python .testlooper/generate_test_plan.py  --out ${TEST_PLAN_OUTPUT}
 ```
 
-test outputs are expected to define the following things: 
+test outputs are expected to define the following things, in addition to a version number (1 as of
+5/17/23)
 
 1. Environments 
 2. Builds

@@ -1,8 +1,9 @@
-from typed_python import OneOf, TupleOf, NamedTuple, ListOf, ConstDict, Alternative, Dict
-from object_database import Indexed, Index, SubscribeLazilyByDefault
+import yaml
+from object_database import Index, Indexed, SubscribeLazilyByDefault
+from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf, TupleOf
 
-from .schema_declarations import repo_schema, test_schema
-
+from .schema_declarations import repo_schema, test_schema, engine_schema
+from .engine_schema import Status
 
 TestFilter = NamedTuple(
     # Result is tests that satisfy:
@@ -85,6 +86,9 @@ class CommitTestDefinition:
     test_suites = Dict(str, OneOf(None, test_schema.TestSuite))  # None when pending generation
 
     def set_test_plan(self, test_plan):
+        """parse the YAML file produced by generated-test-plan
+        (see docs/specs/Repo_Configuration_Spec.md)
+        """
         assert isinstance(test_plan, test_schema.TestPlan), test_plan
 
         if self.test_plan is not None:
@@ -92,9 +96,58 @@ class CommitTestDefinition:
                 f"Cannot set_test_pan on commit {self.commit.hash} because it already has one"
             )
 
+        test_plan_dict =  yaml.safe_load(test_plan.plan)
+        self.parse_test_plan(test_plan_dict)
         self.test_plan = test_plan
-        # TODO parse TestPlan, generate engine_schema.Tasks and put placeholders
-        # in self.test_suites
+
+    def parse_test_plan(self, test_plan_dict: Dict(str, str)):
+        """Act on the test plan. Read the environments, builds, and suites,
+        and generate Tasks accordingly.
+        """
+
+
+
+        version = test_plan_dict["version"]
+        assert version == 1, f"Unsupported test_plan version {version}"
+        if "environments" in test_plan_dict:
+            pass  # TODO
+        if "builds" in test_plan_dict:
+            pass  # TODO
+        if "suites" in test_plan_dict:
+            # suites: suite_name: kind
+            suites = test_plan_dict["suites"]
+            for suite_name, suite in suites.items():
+                kind = suite["kind"]
+                if kind != "unit":
+                    raise NotImplementedError(f"Unsupported suite kind {kind}")
+                environment = suite["environment"]
+                # FIXME: this environment should match a previously defined env, but
+                # this still needs building so we generate a fresh one.
+
+                env = test_schema.Environment.lookupUnique(name=environment)
+                if env is None:
+                    env = test_schema.Environment(name=environment,
+                                                  variables={},
+                                                  image=Image.DockerImage(name="ubuntu:latest",
+                                                                          with_docker=True,
+                                                                          from_dockerfile=None),
+                                                  min_ram_gb=0,
+                                                  min_cores=0,
+                                                  custom_setup="")
+                dependencies = suite["dependencies"]
+                list_tests = suite["list-tests"]
+                run_tests = suite["run-tests"]
+                timeout = suite["timeout"]
+                engine_schema.TestSuiteGenerationTask(commit=self.commit,
+                                                      environment=env,
+                                                      dependencies=dependencies,
+                                                      name=suite_name,
+                                                      status=Status(),
+                                                      timeout=timeout,
+                                                      list_tests_command=list_tests,
+                                                      run_tests_command=run_tests
+                                                      )
+
 
 
 Image = Alternative(
@@ -108,7 +161,7 @@ Image = Alternative(
 class Environment:
     """An environment where tests may run"""
 
-    name = str
+    name = Indexed(str)
     variables = ConstDict(str, str)  # Environment Variables
     image = Image
     min_ram_gb = float

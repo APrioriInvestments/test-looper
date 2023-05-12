@@ -18,10 +18,13 @@ keywords = ["testing"]
 requires-python = ">=3.8"
 dependencies = [
     "object_database @ git+https://github.com/APrioriInvestments/object_database.git@b047bdc2a8dabc5d954599a441b3da23a83b50d9#egg=object_database=999.999.999",
+    "PyYAML ~= 6.0"
 ]
 
 [project.optional-dependencies]
-dev = ["pre-commit"]
+dev = ["pre-commit",
+       "pytest",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

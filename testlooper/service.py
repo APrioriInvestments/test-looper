@@ -13,8 +13,8 @@ import object_database.web.cells as cells
 from object_database import ServiceBase
 from typed_python import ConstDict
 
-from .schemas import repo_schema, ui_schema
-from .utils import get_tl_link, add_menu_bar, HEADER_FONTSIZE
+from .schemas import engine_schema, repo_schema, ui_schema
+from .utils import HEADER_FONTSIZE, add_menu_bar, get_tl_link
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +23,14 @@ class TestlooperService(ServiceBase):
     def initialize(self):
         # make sure we're subscribed to all objects in our schema.
         self.db.subscribeToSchema(repo_schema)
+        self.db.subscribeToSchema(engine_schema)
 
     @staticmethod
     def serviceDisplay(service_object, instance=None, objType=None, queryArgs=None):
         print("displaying TL")
         cells.ensureSubscribedSchema(repo_schema)
         cells.ensureSubscribedSchema(ui_schema)
+        cells.ensureSubscribedSchema(engine_schema)
         m = f"serviceDisplay for {service_object}: instance {instance}, objType {objType}"
         logger.debug(m)
         if instance is not None:
@@ -39,6 +41,23 @@ class TestlooperService(ServiceBase):
 
         else:
             return Homepage.display_cell(service_object)
+
+    # def doWork(self, shouldStop):
+    #     """Wake up every 100ms, look for Tasks, and execute them (very naively)."""
+    #     while not shouldStop.is_set():
+    #         time.sleep(0.1)
+    #         with self.db.transaction():
+    #             # get all the tasks
+    #             test_plan_generation_tasks = engine_schema.TestPlanGenerationTask.lookupAll()
+    #             for test_plan_generation_task in test_plan_generation_tasks:
+    #                 status = test_plan_generation_task.status
+    #                 if status == StatusEvent.CREATED:
+    #                     status.start()
+    #                     print('starting task', test_plan_generation_task)
+    #                     # here we should do dispatching/queueing etc, but for now just write
+    #                     # the test plan.
+
+    #             # execute
 
 
 class Homepage:
@@ -51,6 +70,7 @@ class Homepage:
                 if repo.primary_branch is None:
                     branch_cell = cells.Text("")
                     commit_cell = cells.Text("")
+                    config_cell = cells.Text("")
                 else:
                     branch = repo.primary_branch
                     branch_name = branch.name
@@ -74,6 +94,9 @@ class Homepage:
                     commit_cell = cells.Clickable(
                         branch.top_commit.hash, get_tl_link(branch.top_commit)
                     )
+                    config_cell = cells.HCenter(
+                        cells.Button("", get_tl_link(branch.top_commit.test_config))
+                    )
 
                 repo_row = ConstDict(str, object)(
                     {
@@ -82,8 +105,7 @@ class Homepage:
                         "Latest Commit": commit_cell,
                         "Latest Test Run": "bla",
                         "Primary Branch Status": "Passing",
-                        "Test Definitions": "bla",
-                        "Test Plan Generator": "bla",
+                        "Testlooper Config": config_cell,
                         "Test Suites": "bla",
                     }
                 )
@@ -93,12 +115,6 @@ class Homepage:
         def repoDataRenderer(data, field):
             return data[field]
 
-        # TODO use a headerbar
-        # reload_button = cells.Button("Reload", reload)
-        # layout = cells.HorizontalSequence(
-        #     [cells.Button("TL", f"{service_object.name}")], margin=10
-        # )
-
         repo_table = cells.Table(
             colFun=lambda: [
                 "Name",
@@ -106,8 +122,7 @@ class Homepage:
                 "Latest Commit",
                 "Latest Test Run",
                 "Primary Branch Status",
-                "Test Definitions",
-                "Test Plan Generator",
+                "Testlooper Config",
                 "Test Suites",
             ],
             rowFun=rowFun,

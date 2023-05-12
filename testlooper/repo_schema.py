@@ -137,6 +137,20 @@ class TestConfig:
     """Contains the text of the .testlooper/config.yaml for one or more commits."""
 
     config = Indexed(str)
+    repo = Indexed(Repo)
+
+    def display_cell(self) -> cells.Cell:
+        """Simply display the yaml text."""
+
+        layout = cells.Padding(bottom=20) * cells.Text("Test Config", fontSize=HEADER_FONTSIZE)
+        layout += cells.Scrollable(cells.Code(self.config))
+        return add_menu_bar(
+            cells.HCenter(layout),
+            {
+                "TL": f"/services/{TL_SERVICE_NAME}",
+                self.repo.name: get_tl_link(self.repo),
+            },
+        )
 
 
 @repo_schema.define
