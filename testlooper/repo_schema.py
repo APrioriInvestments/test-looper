@@ -5,7 +5,7 @@ import object_database.web.cells as cells
 from object_database import Index, Indexed
 from typed_python import Alternative, ConstDict, OneOf
 
-from .schema_declarations import repo_schema, ui_schema
+from .schema_declarations import repo_schema, ui_schema, test_schema
 from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
 
 logger = logging.getLogger(__name__)
@@ -169,6 +169,14 @@ class Commit:
         for p in parents:
             if p not in curParents:
                 CommitParent(parent=p, child=self)
+
+    def get_test_suite(self, name):
+        """Find the TestSuite that corresponds to a commit."""
+        test_definition = test_schema.CommitTestDefinition.lookupUnique(commit=self)
+        if test_definition is None:
+            return None
+
+        return test_definition.test_suites.get(name, None)
 
     def clear_test_results(self):
         # TODO

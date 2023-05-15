@@ -67,12 +67,22 @@ class CommitDesiredTesting:
     commit = Indexed(repo_schema.Commit)
     desired_testing = DesiredTesting
 
+    def update_desired_testing(self, desired_testing):
+        # TODO: trigger any engine_schema testing actions to perform the desired testing.
+        self.desired_testing = desired_testing
+
+
+@test_schema.define
+class CommitTestDefinition:
+    """TestSuites and Tests defined by a commit
+
+    One such object exists per commit.
+    """
+
+    commit = Indexed(repo_schema.Commit)
+
     test_plan = OneOf(None, test_schema.TestPlan)  # None when pending generation
     test_suites = Dict(str, OneOf(None, test_schema.TestSuite))  # None when pending generation
-
-    def update_desired_testing(self, desired_testing):
-        # TODO: do we need to trigger engine events such as TestSuiteGenerationTask?
-        self.desired_testing = desired_testing
 
     def set_test_plan(self, test_plan):
         assert isinstance(test_plan, test_schema.TestPlan), test_plan
@@ -83,6 +93,8 @@ class CommitDesiredTesting:
             )
 
         self.test_plan = test_plan
+        # TODO parse TestPlan, generate engine_schema.Tasks and put placeholders
+        # in self.test_suites
 
 
 Image = Alternative(
@@ -201,7 +213,7 @@ class Test:
 
     def __hash__(self):
         if self._hash is None:
-            self._hash = hash(tuple(name, tuple(hash(label) for label in self.labels)))
+            self._hash = hash(tuple(self.name, tuple(hash(label) for label in self.labels)))
         return self._hash
 
     def get_parents(self):
@@ -209,7 +221,7 @@ class Test:
 
     @property
     def is_new(self) -> bool:
-         return len(self.get_parents()) == 0
+        return len(self.get_parents()) == 0
 
     @property
     def created_since(self, commit):
@@ -221,7 +233,7 @@ class Test:
 
     @property
     def exists_in(self, commit):
-        """ True if test exists in commit, False if it doesn't, and Unknown if we don't know."""
+        """True if test exists in commit, False if it doesn't, and Unknown if we don't know."""
         testing_config = test_schema.CommitDesiredTesting.lookupUnique(commit=commit)
         if testing_config is None:
             return Unknown
@@ -337,7 +349,9 @@ class TestResults:
 
 
 def find_most_recent_test_results(test, commit, count=50, depth=1000):
-    """ Return a list of TestRunResult objects for a test starting from a given commit
+    """Return a list of TestRunResult objects for a test starting from a given commit
+
+    This will be used by our logic that tries to guess how long a test will take.
 
     We need to walk back the commit history starting from the given commit doing a
     breadth first search looking for TestResults objects and collecting their TestRunResult
@@ -345,4 +359,7 @@ def find_most_recent_test_results(test, commit, count=50, depth=1000):
 
     There are many ways of doing this. For example we could only look at TestResults that
     match Test exactly, and then priorize by commit proximity, including or excluding commits
-    on other branches. Or we could take into account Test
+    on other branches. Or we could take into account TestResults for a given test based on how
+    recently they were ran.
+    """
+    raise NotImplementedError()
