@@ -31,6 +31,7 @@ digraph G {
     node [color=blue, shape=oval]
     BranchDesiredTesting
     CommitDesiredTesting
+    CommitTestDefinition
     TestPlan
     TestSuite
     Test
@@ -51,8 +52,9 @@ digraph G {
     //BranchDesiredTesting -> TestConfiguration
 
     CommitDesiredTesting -> Commit
-    CommitDesiredTesting -> TestPlan
-    CommitDesiredTesting -> TestSuite
+    CommitTestDefinition -> Commit
+    CommitTestDefinition -> TestPlan
+    CommitTestDefinition -> TestSuite
     //CommitDesiredTesting -> TestConfiguration
 
     TestSuite -> TestSuite
