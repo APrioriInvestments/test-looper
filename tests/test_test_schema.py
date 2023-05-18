@@ -1,10 +1,13 @@
 """Golden-path tests for CommitTestDefinition."""
 
+import object_database.web.cells as cells
+import pytest
+
 from testlooper.engine_schema import Status
 from testlooper.schemas import engine_schema, repo_schema, test_schema
-import object_database.web.cells as cells
 
-from .utils import clear_branch_structure, generate_branch_structure, testlooper_db
+from .utils import (clear_branch_structure, generate_branch_structure,
+                    testlooper_db)
 
 testlooper_db = testlooper_db  # necessary to avoid flake8 errors
 
@@ -67,7 +70,8 @@ suites:
             .testlooper/run-matlab-tests.sh
 """
 
-
+@pytest.mark.fast  # markly solely used to test the collection script
+@pytest.mark.slow  # markly solely used to test the collection script
 def test_commit_test_definition_can_generate_example_plan(testlooper_db):
     """Ensure that the example test plan from the docs is properly parsed."""
     branches = {"dev": ["a", "b", "c"], "feature": ["a", "d", "e"]}

@@ -28,3 +28,7 @@ dev = ["pre-commit",
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow to run (currently only used to check TL filtering)",
+    "fast: marks tests as quick to run (currently only used to check TL filtering)",
+]
