@@ -51,6 +51,7 @@ class TestPlanGenerationTask:
 @engine_schema.define
 class TestPlanGenerationResult:
     """Keep track of a task to generate a test plan."""
+
     # TODO (Will): resolve the overlap between this and CommitTestDefinition
     commit = repo_schema.Commit
     data = test_schema.TestPlan  # YAML file of TestPlan
@@ -71,7 +72,7 @@ class BuildDockerImageResult:
 
 @engine_schema.define
 class TestSuiteGenerationTask:
-    commit = repo_schema.Commit
+    commit = Indexed(repo_schema.Commit)  # TODO this index is likely temporary
     environment = test_schema.Environment
     # map of build name to build path, optional
     dependencies = OneOf(Dict(str, str), None)

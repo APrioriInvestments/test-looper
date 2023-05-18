@@ -27,7 +27,6 @@ class TestlooperService(ServiceBase):
 
     @staticmethod
     def serviceDisplay(service_object, instance=None, objType=None, queryArgs=None):
-        print("displaying TL")
         cells.ensureSubscribedSchema(repo_schema)
         cells.ensureSubscribedSchema(ui_schema)
         cells.ensureSubscribedSchema(engine_schema)
@@ -71,6 +70,8 @@ class Homepage:
                     branch_cell = cells.Text("")
                     commit_cell = cells.Text("")
                     config_cell = cells.Text("")
+                    branch_test_status_cell = cells.Text("")
+                    suites_cell = cells.Text("")
                 else:
                     branch = repo.primary_branch
                     branch_name = branch.name
@@ -97,6 +98,8 @@ class Homepage:
                     config_cell = cells.HCenter(
                         cells.Button("", get_tl_link(branch.top_commit.test_config))
                     )
+                    branch_test_status_cell = cells.Text("Passing")
+                    suites_cell = cells.Text("Suites")
 
                 repo_row = ConstDict(str, object)(
                     {
@@ -104,9 +107,9 @@ class Homepage:
                         "Primary Branch": branch_cell,
                         "Latest Commit": commit_cell,
                         "Latest Test Run": "bla",
-                        "Primary Branch Status": "Passing",
+                        "Primary Branch Status": branch_test_status_cell,
                         "Testlooper Config": config_cell,
-                        "Test Suites": "bla",
+                        "Test Suites": suites_cell,
                     }
                 )
                 repo_rows.append(repo_row)

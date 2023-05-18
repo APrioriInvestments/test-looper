@@ -16,24 +16,30 @@
 
 # pyright: reportGeneralTypeIssues=false
 
+import logging
+import subprocess
 import sys
 import tempfile
 import time
+from typing import Dict
 
+import numpy as np
+import uuid
+import yaml
 from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
-from object_database.util import genToken
+from object_database.util import genToken, setupLogging
 from object_database.web.ActiveWebService import ActiveWebService
 from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
 
-from testlooper.utils import TL_SERVICE_NAME
-from testlooper.repo_schema import Branch, Commit, Repo, RepoConfig, TestConfig
 from testlooper.engine_schema import Status
-from testlooper.schemas import repo_schema, engine_schema
+from testlooper.repo_schema import Branch, Commit, Repo, RepoConfig, TestConfig
+from testlooper.schemas import engine_schema, repo_schema, test_schema
 from testlooper.service import TestlooperService
-
+from testlooper.test_schema import StageResult, TestRunResult
+from testlooper.utils import TL_SERVICE_NAME
 
 TEST_PLAN = """
 version: 1
@@ -68,28 +74,35 @@ suites:
         environment: linux-pytest
         dependencies:
         list-tests: |
-            .testlooper/collect-pytest-tests.sh -m 'not docker'
+            ./collect_pytest_tests.py -m 'not docker'
         run-tests: |
-            .testlooper/run-pytest-tests.sh
+            ./run_pytest_tests.py -m 'not docker'
+        timeout:
 
     pytest-docker:
         kind: unit
         environment: linux-native
         dependencies:
         list-tests: |
-            .testlooper/collect-pytest-tests.sh -m 'docker'
+            ./collect_pytest_tests.py -m 'docker'
         run-tests: |
-            .testlooper/run-pytest-tests.sh
+            ./run_pytest_tests.py  -m 'docker'
+        timeout:
 
     matlab:
         kind: unit
         environment: linux-native
         dependencies:
         list-tests: |
-            .testlooper/collect-matlab-tests.sh
+            .testlooper/collect_matlab_tests.sh
         run-tests: |
-            .testlooper/run-matlab-tests.sh
+            .testlooper/run_matlab_tests.sh
+        timeout:
 """
+
+
+logger = logging.getLogger(__name__)
+setupLogging()
 
 
 def main(argv=None):
@@ -115,6 +128,7 @@ def main(argv=None):
                 active_webservice_schema,
                 repo_schema,
                 engine_schema,
+                test_schema,
             )
 
             with database.transaction():
@@ -187,11 +201,31 @@ def main(argv=None):
 
                 # bootstrap the engine with a mock TestPlanGenerationTask and test plan.
                 task = engine_schema.TestPlanGenerationTask(commit=commits[0], status=Status())
-                result = engine_schema.TestPlanGenerationResult(commit=commits[0],
-                                                                data=TEST_PLAN)
-                print(result.data)
+                plan = test_schema.TestPlan(plan=TEST_PLAN)
+                _ = engine_schema.TestPlanGenerationResult(commit=commits[0], data=plan)
                 task.status.completed()
-                # TODO generate some test results
+                # generate some tests, suites, results
+                commit_test_definition = test_schema.CommitTestDefinition(commit=commits[0])
+                commit_test_definition.set_test_plan(plan)
+                # so we have a test plan for a given commit, and testsuitegenerationtasks.
+                # Read the tasks, mock the actual results of the suites.
+                generate_test_suites(commit=commits[0])
+                # Pretend to run our tests (would be run via run_tests_command)
+                for test in test_schema.Test.lookupAll():
+                    test_results = test_schema.TestResults(
+                        test=test, commit=commits[0], runs_desired=1, results=[]
+                    )
+
+                    result = TestRunResult(
+                        uuid=str(uuid.uuid4()),
+                        outcome=np.random.choice(
+                            ["passed", "failed", "skipped"], p=[0.8, 0.1, 0.1]
+                        ),
+                        duration_ms=(duration := np.random.uniform(low=50, high=500)),
+                        start_time=time.time(),
+                        stages={"call": StageResult(duration=duration, outcome="passed")},
+                    )
+                    test_results.add_test_run_result(result)
 
             while True:
                 time.sleep(0.1)
@@ -200,6 +234,58 @@ def main(argv=None):
             if server is not None:
                 server.terminate()
                 server.wait()
+
+
+def generate_test_suites(commit):
+    test_suite_tasks = engine_schema.TestSuiteGenerationTask.lookupAll(commit=commit)
+
+    for test_suite_task in test_suite_tasks:
+        # manually generate the test suite from the task and results
+        test_suite_generation_result = engine_schema.TestSuiteGenerationResult(
+            commit=test_suite_task.commit,
+            environment=test_suite_task.environment,
+            name=test_suite_task.name,
+            tests="",
+            status=Status(),
+        )
+        test_suite_generation_result.status.start()
+
+        list_tests_command = test_suite_task.list_tests_command
+        # FIXME unsafe execution of arbitrary code, should happen in the container.
+        try:
+            output = subprocess.check_output(
+                list_tests_command, shell=True, stderr=subprocess.DEVNULL, encoding="utf-8"
+            )
+        except subprocess.CalledProcessError as e:
+            logger.error("Failed to list tests: %s", str(e).replace("\n", " "))
+            output = None
+
+        if output is not None:
+            # parse the output into Tests.
+            test_dict = parse_list_tests_yaml(output)
+            _ = test_schema.TestSuite(
+                name=test_suite_task.name,
+                environment=test_suite_task.environment,
+                tests=test_dict,
+            )  # TODO parent?
+
+        test_suite_generation_result.status.completed()
+
+
+def parse_list_tests_yaml(list_tests_yaml: str) -> Dict[str, test_schema.Test]:
+    """Parse the output of the list_tests command, and generate Tests if required."""
+    yaml_dict = yaml.safe_load(list_tests_yaml)
+    parsed_dict = {}
+    for test_name, test_dict in yaml_dict.items():
+        test = test_schema.Test.lookupUnique(
+            name_and_labels=(test_name, test_dict.get("labels", []))
+        )
+        if test is None:
+            test = test_schema.Test(
+                name=test_name, labels=test_dict.get("labels", []), path=test_dict["path"]
+            )  # TODO parent?
+        parsed_dict[test_name] = test
+    return parsed_dict
 
 
 if __name__ == "__main__":

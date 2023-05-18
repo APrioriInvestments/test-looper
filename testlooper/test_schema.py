@@ -96,7 +96,7 @@ class CommitTestDefinition:
                 f"Cannot set_test_pan on commit {self.commit.hash} because it already has one"
             )
 
-        test_plan_dict =  yaml.safe_load(test_plan.plan)
+        test_plan_dict = yaml.safe_load(test_plan.plan)
         self.parse_test_plan(test_plan_dict)
         self.test_plan = test_plan
 
@@ -104,8 +104,6 @@ class CommitTestDefinition:
         """Act on the test plan. Read the environments, builds, and suites,
         and generate Tasks accordingly.
         """
-
-
 
         version = test_plan_dict["version"]
         assert version == 1, f"Unsupported test_plan version {version}"
@@ -126,28 +124,30 @@ class CommitTestDefinition:
 
                 env = test_schema.Environment.lookupUnique(name=environment)
                 if env is None:
-                    env = test_schema.Environment(name=environment,
-                                                  variables={},
-                                                  image=Image.DockerImage(name="ubuntu:latest",
-                                                                          with_docker=True,
-                                                                          from_dockerfile=None),
-                                                  min_ram_gb=0,
-                                                  min_cores=0,
-                                                  custom_setup="")
+                    env = test_schema.Environment(
+                        name=environment,
+                        variables={},
+                        image=Image.DockerImage(
+                            name="ubuntu:latest", with_docker=True, from_dockerfile=None
+                        ),
+                        min_ram_gb=0,
+                        min_cores=0,
+                        custom_setup="",
+                    )
                 dependencies = suite["dependencies"]
                 list_tests = suite["list-tests"]
                 run_tests = suite["run-tests"]
                 timeout = suite["timeout"]
-                engine_schema.TestSuiteGenerationTask(commit=self.commit,
-                                                      environment=env,
-                                                      dependencies=dependencies,
-                                                      name=suite_name,
-                                                      status=Status(),
-                                                      timeout=timeout,
-                                                      list_tests_command=list_tests,
-                                                      run_tests_command=run_tests
-                                                      )
-
+                engine_schema.TestSuiteGenerationTask(
+                    commit=self.commit,
+                    environment=env,
+                    dependencies=dependencies,
+                    name=suite_name,
+                    status=Status(),
+                    timeout=timeout,
+                    list_tests_command=list_tests,
+                    run_tests_command=run_tests,
+                )
 
 
 Image = Alternative(
@@ -332,7 +332,7 @@ TestRunResult = NamedTuple(
     uuid=str,  # guid we can use to pull relevant logs from the artifact store
     outcome=Outcome,
     duration_ms=float,  # time taken in ms
-    start_time=int,  # epoch time
+    start_time=float,  # epoch time
     stages=ConstDict(str, StageResult),  # stages are usually setup | call | teardown
 )
 
@@ -379,7 +379,7 @@ class TestResults:
         else:
             return 0.0
 
-    def add_test_run_results(self, result):
+    def add_test_run_result(self, result):
         self.results.append(result)
         self.runs_completed += 1
 
