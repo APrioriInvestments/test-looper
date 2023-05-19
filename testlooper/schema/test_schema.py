@@ -227,7 +227,7 @@ class CommitTestDefinition:
 Image = Alternative(
     "Image",
     AwsAmi=dict(name=str),
-    DockerImage=dict(name=str, with_docker=bool, from_dockerfile=OneOf(None, str)),
+    DockerImage=dict(name=str, with_docker=bool),
 )
 
 

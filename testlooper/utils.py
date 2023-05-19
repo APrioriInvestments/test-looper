@@ -1,6 +1,9 @@
 """
 utils.py
 """
+import hashlib
+import os
+
 from typing import Dict, Callable, Union
 
 import object_database.web.cells as cells
@@ -30,3 +33,36 @@ def add_menu_bar(cell: cells.Cell, menu_items: Dict[str, Union[str, Callable]]) 
     )
     menu_bar_spacing = 25
     return cells.Padding(bottom=menu_bar_spacing) * menu + cell
+
+
+def hash_docker_build_env(dockerfile: str) -> str:
+    """Returns an MD5 hash of a docker-build environment.
+
+    A docker-build environment is the collection of files present in the
+    directory of the dockerfile.
+
+    Args:
+        dockerfile [str]: the path to a dockerfile or to a directory containing
+            a 'Dockerfile'
+    """
+    if not os.path.exists(dockerfile):
+        raise OSError(f"Path does not exist: {dockerfile}")
+
+    if os.path.isdir(dockerfile):
+        dockerdir = dockerfile
+        dockerfile = os.path.join(dockerdir, "Dockerfile")
+        if not os.path.isfile(dockerfile):
+            raise OSError(f"Path does not exist: {dockerfile}")
+
+    else:
+        assert os.path.isfile(dockerfile)
+        dockerdir, _ = os.path.split(dockerfile)
+
+    digest = hashlib.md5()
+    for root, dirs, files in os.walk(dockerdir):
+        dirs.sort()
+        for file in sorted(files):
+            with open(os.path.join(root, file), "r") as fd:
+                digest.update(fd.read())
+
+    return digest.hexdigest()
