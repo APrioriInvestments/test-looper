@@ -71,27 +71,42 @@ class Homepage:
                     commit_cell = cells.Text("")
                     config_cell = cells.Text("")
                     branch_test_status_cell = cells.Text("")
-                    suites_cell = cells.Text("")
+                    suites_cell = cells.Button("", "")
                 else:
                     branch = repo.primary_branch
                     branch_name = branch.name
 
                     def get_or_create_branch_view():
                         commit = branch.top_commit
-
-                        branch_view = ui_schema.BranchView.lookupUnique(
-                            commit_and_branch=(commit, branch)
-                        )
-                        if branch_view is None:
+                        if (
+                            branch_view := ui_schema.BranchView.lookupUnique(
+                                commit_and_branch=(commit, branch)
+                            )
+                        ) is None:
                             branch_view = ui_schema.BranchView(branch=branch, commit=commit)
-
                         return branch_view
 
-                    def on_click():
+                    def get_or_create_suites_view():
+                        commit = branch.top_commit
+                        if (
+                            suites_view := ui_schema.TestSuitesView.lookupUnique(
+                                commit_and_branch=(commit, branch)
+                            )
+                        ) is None:
+                            suites_view = ui_schema.TestSuitesView(
+                                branch=branch, commit=commit
+                            )
+                        return suites_view
+
+                    def on_branch_click():
                         branch_view = get_or_create_branch_view()
                         return get_tl_link(branch_view)
 
-                    branch_cell = cells.Clickable(branch_name, on_click)
+                    def on_suites_click():
+                        suites_view = get_or_create_suites_view()
+                        return get_tl_link(suites_view)
+
+                    branch_cell = cells.Clickable(branch_name, on_branch_click)
                     commit_cell = cells.Clickable(
                         branch.top_commit.hash, get_tl_link(branch.top_commit)
                     )
@@ -99,7 +114,8 @@ class Homepage:
                         cells.Button("", get_tl_link(branch.top_commit.test_config))
                     )
                     branch_test_status_cell = cells.Text("Passing")
-                    suites_cell = cells.Text("Suites")
+
+                    suites_cell = cells.HCenter(cells.Button("", on_suites_click))
 
                 repo_row = ConstDict(str, object)(
                     {

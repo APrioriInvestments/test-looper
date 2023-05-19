@@ -23,7 +23,7 @@ import tempfile
 import time
 from typing import Dict
 
-import numpy as np
+from numpy.random import default_rng
 import uuid
 import yaml
 from object_database import connect, core_schema, service_schema
@@ -40,6 +40,9 @@ from testlooper.schemas import engine_schema, repo_schema, test_schema
 from testlooper.service import TestlooperService
 from testlooper.test_schema import StageResult, TestRunResult
 from testlooper.utils import TL_SERVICE_NAME
+
+
+rng = default_rng()
 
 TEST_PLAN = """
 version: 1
@@ -112,7 +115,7 @@ def main(argv=None):
     token = genToken()
     http_port = 8001
     odb_port = 8021
-    loglevel_name = "INFO"
+    loglevel_name = "ERROR"
 
     with tempfile.TemporaryDirectory() as tmp_dirname:
         server = None
@@ -206,6 +209,7 @@ def main(argv=None):
                 task.status.completed()
                 # generate some tests, suites, results
                 commit_test_definition = test_schema.CommitTestDefinition(commit=commits[0])
+                logging.info("Generated commit test definition for commit %s", commits[0].hash)
                 commit_test_definition.set_test_plan(plan)
                 # so we have a test plan for a given commit, and testsuitegenerationtasks.
                 # Read the tasks, mock the actual results of the suites.
@@ -218,14 +222,15 @@ def main(argv=None):
 
                     result = TestRunResult(
                         uuid=str(uuid.uuid4()),
-                        outcome=np.random.choice(
-                            ["passed", "failed", "skipped"], p=[0.8, 0.1, 0.1]
-                        ),
-                        duration_ms=(duration := np.random.uniform(low=50, high=500)),
+                        outcome=rng.choice(["passed", "failed", "skipped"], p=[0.8, 0.1, 0.1]),
+                        duration_ms=(duration := rng.uniform(low=50, high=500)),
                         start_time=time.time(),
                         stages={"call": StageResult(duration=duration, outcome="passed")},
                     )
                     test_results.add_test_run_result(result)
+                    logging.info(
+                        f"Adding test result '{result.outcome}' for test: {test.name}"
+                    )
 
             while True:
                 time.sleep(0.1)
@@ -239,6 +244,7 @@ def main(argv=None):
 def generate_test_suites(commit):
     test_suite_tasks = engine_schema.TestSuiteGenerationTask.lookupAll(commit=commit)
 
+    suites_dict = {}
     for test_suite_task in test_suite_tasks:
         # manually generate the test suite from the task and results
         test_suite_generation_result = engine_schema.TestSuiteGenerationResult(
@@ -263,13 +269,19 @@ def generate_test_suites(commit):
         if output is not None:
             # parse the output into Tests.
             test_dict = parse_list_tests_yaml(output)
-            _ = test_schema.TestSuite(
+            suite = test_schema.TestSuite(
                 name=test_suite_task.name,
                 environment=test_suite_task.environment,
                 tests=test_dict,
             )  # TODO parent?
-
+            suites_dict[suite.name] = suite
+            logging.info(
+                f"Generated test suite {test_suite_task.name} with {len(test_dict)} tests."
+            )
         test_suite_generation_result.status.completed()
+    # add the suites to the commit test  definition once finished
+    commit_test_definition = test_schema.CommitTestDefinition.lookupUnique(commit=commit)
+    commit_test_definition.test_suites = suites_dict
 
 
 def parse_list_tests_yaml(list_tests_yaml: str) -> Dict[str, test_schema.Test]:

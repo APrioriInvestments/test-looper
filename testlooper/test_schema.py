@@ -1,9 +1,10 @@
+import object_database.web.cells as cells
 import yaml
 from object_database import Index, Indexed, SubscribeLazilyByDefault
 from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf, TupleOf
 
-from .schema_declarations import repo_schema, test_schema, engine_schema
 from .engine_schema import Status
+from .schema_declarations import engine_schema, repo_schema, test_schema
 
 TestFilter = NamedTuple(
     # Result is tests that satisfy:
@@ -302,6 +303,9 @@ class Test:
                         return True
 
         return Unknown if missing else False
+
+    def display_cell(self):
+        return cells.Text(self.name)
 
 
 @test_schema.define
