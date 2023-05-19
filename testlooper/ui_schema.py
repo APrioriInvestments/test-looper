@@ -99,6 +99,7 @@ class BranchView:
         layout = cells.Padding(bottom=20) * cells.Text(
             "Branch: " + self.branch.name, fontSize=HEADER_FONTSIZE
         )
+        layout += cells.Button("View test matrix", get_tl_link(self.branch))
         layout += cells.Table(
             colFun=lambda: [
                 "Hash",

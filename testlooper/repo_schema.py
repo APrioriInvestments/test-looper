@@ -1,9 +1,11 @@
+from dataclasses import dataclass
 import logging
 from collections import deque
 from datetime import datetime
 import object_database.web.cells as cells
 from object_database import Index, Indexed
 from typed_python import Alternative, ConstDict, OneOf
+from typing import List
 
 from .schema_declarations import repo_schema, ui_schema, test_schema
 from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
@@ -350,13 +352,125 @@ class CommitParent:
     parent_and_child = Index("parent", "child")
 
 
+@dataclass(eq=True, frozen=True)
+class TestRow:
+    test_name: str
+    suite_name: str
+    env_name: str
+    test: test_schema.Test
+
+
 @repo_schema.define
 class Branch:
     repo = Indexed(Repo)
     name = str
-
     repo_and_name = Index("repo", "name")
     top_commit = Indexed(Commit)
+
+    def display_cell(self) -> cells.Cell:
+        """
+        Shows a table in which the commits are columns, and the test names are rows.
+
+        Slots track the leftmost commit, though this is never updated, and we show 10
+        commits total.
+        """
+
+        leftmost_commit = cells.Slot(self.top_commit)
+        failed_tests_only = cells.Slot(False)
+        all_failed_tests_only = cells.Slot(False)
+        layout = cells.Padding(bottom=20) * cells.Text(
+            "Branch: " + self.name, fontSize=HEADER_FONTSIZE
+        )
+
+        def branch_view_on_click():
+            if not (
+                bv := ui_schema.BranchView.lookupUnique(
+                    commit_and_branch=(self.top_commit, self)
+                )
+            ):
+                bv = ui_schema.BranchView(commit=self.top_commit, branch=self)
+            return get_tl_link(bv)
+
+        layout += cells.Padding(bottom=20) * cells.Button(
+            "View linear summary", branch_view_on_click
+        )
+
+        layout += cells.Button("Show most recent failed tests", failed_tests_only.toggle)
+        layout += cells.Button("Show all failed tests", all_failed_tests_only.toggle)
+
+        def get_most_recent_commits(commit: Commit, N: int) -> List[Commit]:
+            """Return the commit objects to use as columns in the table.
+
+            Requires a linear history."""
+            commits = [commit]
+            current_commit = commit
+            for _ in range(N - 1):
+                parents = current_commit.parents
+                if len(parents) == 0:
+                    break
+                if len(parents) != 1:
+                    raise ValueError("Commit history is not linear")
+                current_commit = parents[0]
+                commits.append(current_commit)
+            return commits
+
+        def row_fun():
+            """Get all Tests for the last 10 commits
+
+            TODO: make Slot-based, don't hardcode the number, likely to be unperformant"""
+            recent_tests = set()
+            for commit in get_most_recent_commits(leftmost_commit.get(), N=10):
+                ctd = test_schema.CommitTestDefinition.lookupUnique(commit=commit)
+                if ctd is None:
+                    continue
+                for suite_name, suite in ctd.test_suites.items():
+                    for test in suite.tests.values():
+                        recent_tests.add(
+                            TestRow(
+                                test_name=test.name,
+                                suite_name=suite_name,
+                                env_name=suite.environment.name,
+                                test=test,
+                            )
+                        )
+            # TODO filter using the slots.
+            return list(recent_tests)
+
+        def renderer_fun(row: TestRow, field_name: str) -> cells.Cell:
+            if field_name == "Test Name":
+                return row.test_name
+            elif field_name == "Suite Name":
+                return row.suite_name
+            elif field_name == "Environment Name":
+                return row.env_name
+            else:
+                # field name is a commit hash. Try to pull a TestResults
+                commit = repo_schema.Commit.lookupUnique(hash=field_name)
+                test_results = test_schema.TestResults.lookupUnique(
+                    test_and_commit=(row.test, commit)
+                )
+                if test_results is None:
+                    return "NA"
+                else:
+                    return "X" if test_results.runs_failed > 0 else " "
+
+        table = cells.Table(
+            colFun=lambda: ["Test Name", "Suite Name", "Environment Name"]
+            + [x.hash for x in repo_schema.Commit.lookupAll()],
+            rowFun=row_fun,
+            headerFun=lambda x: x,
+            rendererFun=renderer_fun,
+        )
+        layout += table
+
+        return add_menu_bar(
+            cells.HCenter(layout),
+            {
+                "TL": f"/services/{TL_SERVICE_NAME}",
+                self.repo.name: get_tl_link(self.repo),
+                self.name: get_tl_link(self),
+            },
+        )
 
     def set_desired_testing(self, desired_testing: DesiredTesting):
         _ = test_schema.BranchDesiredTesting(branch=self, desired_testing=desired_testing)
