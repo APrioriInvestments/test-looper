@@ -5,6 +5,7 @@ from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf
 
 from .engine_schema import Status
 from .schema_declarations import engine_schema, repo_schema, test_schema
+from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar
 
 TestFilter = NamedTuple(
     # Result is tests that satisfy:
@@ -175,6 +176,18 @@ class TestPlan:
     """Contents of YAML file produced by running generate-test-plan on a Commit."""
 
     plan = Indexed(str)
+
+    def display_cell(self) -> cells.Cell:
+        """Simply display the yaml text."""
+
+        layout = cells.Padding(bottom=20) * cells.Text(
+            "Repo Test Plan", fontSize=HEADER_FONTSIZE
+        )
+        layout += cells.Scrollable(cells.Code(self.plan))
+        return add_menu_bar(
+            cells.HCenter(layout),
+            {"TL": f"/services/{TL_SERVICE_NAME}"},
+        )
 
 
 @test_schema.define

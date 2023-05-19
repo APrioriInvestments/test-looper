@@ -103,6 +103,19 @@ suites:
         timeout:
 """
 
+TEST_CONFIG = """
+version: 1.0
+image:
+     docker:
+        dockerfile: .testlooper/environments/plan-generation/Dockerfile
+        with-docker: true
+
+variables:
+    PYTHONPATH: ${REPO_ROOT}
+
+command:
+    python .testlooper/generate_test_plan.py  --out ${TEST_PLAN_OUTPUT}
+"""
 
 logger = logging.getLogger(__name__)
 setupLogging()
@@ -176,7 +189,7 @@ def main(argv=None):
                 # add a repo with branches and commits
                 repo_config = RepoConfig.Local(path="/tmp/test_repo")
                 repo = Repo(name="test_repo", config=repo_config)
-                test_config = TestConfig(config="test_config_here", repo=repo)
+                test_config = TestConfig(config=TEST_CONFIG, repo=repo)
                 commits.append(
                     Commit(
                         hash="12abc43a",
