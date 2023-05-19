@@ -29,12 +29,13 @@ dev = ["pre-commit",
        "flake8",
 ]
 
+[project.scripts]
+tlcli = "testlooper.cli.tlcli:tlcli"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
     "docker: marks test that must run in a Docker image (currently only used to check TL filtering)",
     "fast: marks tests as quick to run (currently only used to check TL filtering)",
+    "slow: marks tests that take too long to repeatedly run.",
 ]
-
-[project.scripts]
-tlcli = "testlooper.cli.tlcli:tlcli"

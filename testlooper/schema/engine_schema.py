@@ -102,6 +102,7 @@ class TestPlanGenerationResult(ResultBase):
 @engine_schema.define
 class BuildDockerImageTask:
     commit = repo_schema.Commit
+    environment_name = str
     dockerfile = str  # path to Dockerfile or its directory
     image = str  # image name and/or tag
     status = Status
@@ -109,6 +110,8 @@ class BuildDockerImageTask:
 
 @engine_schema.define
 class BuildDockerImageResult:
+    commit = repo_schema.Commit
+    environment_name = str
     image = str
 
 
