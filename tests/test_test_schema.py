@@ -80,7 +80,7 @@ def test_commit_test_definition_can_generate_example_plan(testlooper_db):
         cells.ensureSubscribedSchema(test_schema)
         commit = repo_schema.Commit.lookupUnique(hash="a")
         _ = engine_schema.TestPlanGenerationTask(commit=commit, status=Status())
-        test_plan = test_schema.TestPlan(plan=TEST_PLAN)
+        test_plan = test_schema.TestPlan(plan=TEST_PLAN, commit=commit)
         _ = engine_schema.TestPlanGenerationResult(commit=commit, data=test_plan)
         commit_test_definition = test_schema.CommitTestDefinition(commit=commit)
         commit_test_definition.set_test_plan(test_plan)

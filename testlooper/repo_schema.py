@@ -1,12 +1,13 @@
 import logging
 from collections import deque
-
+from datetime import datetime
 import object_database.web.cells as cells
 from object_database import Index, Indexed
 from typed_python import Alternative, ConstDict, OneOf
 
 from .schema_declarations import repo_schema, ui_schema, test_schema
 from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+from .test_schema import DesiredTesting
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +60,17 @@ class Repo:
 
     def display_cell(self) -> cells.Cell:
         """Returns the Cells object for the repo page."""
-        layout = cells.Padding(bottom=20) * cells.Text(self.name, fontSize=HEADER_FONTSIZE)
+        layout = cells.Padding(bottom=20) * cells.Text(
+            "Repo:" + self.name, fontSize=HEADER_FONTSIZE
+        )
+        tl_config = self.primary_branch.top_commit.test_config
+        test_plan = test_schema.TestPlan.lookupUnique(commit=self.primary_branch.top_commit)
         layout += cells.HorizontalSequence(
             [
                 cells.Padding(padding=10) * b
                 for b in [
-                    cells.Button("View test_definitions file", "/td"),
-                    cells.Button("View test plan generator", "/tpg"),
-                    cells.Button("View test plan", "/tp"),
+                    cells.Button("View testlooper config", get_tl_link(tl_config)),
+                    cells.Button("View test plan", get_tl_link(test_plan)),
                 ]
             ]
         )
@@ -86,14 +90,54 @@ class Repo:
                         bv = ui_schema.BranchView(commit=branch.top_commit, branch=branch)
                     return get_tl_link(bv)
 
+                # 'Passing' if the most recent TestRunResult for the tests of the top
+                # commit are all passing, 'Failing' otherwise.
+                # NB: requires a full scan of the tests, could be optimized.
+                commit_test_results = test_schema.TestResults.lookupAll(
+                    commit=branch.top_commit
+                )
+                branch_test_status = "Passing"
+                most_recent_timestamp = 0
+                for test in commit_test_results:
+                    most_recent_outcome = (
+                        test.results[-1].outcome if test.results else "not run"
+                    )
+                    timestamp = test.results[-1].start_time if test.results else 0
+                    if timestamp > most_recent_timestamp:
+                        most_recent_timestamp = timestamp
+                    if most_recent_outcome == "failed":
+                        branch_test_status = "Failing"
+
+                if most_recent_timestamp > 0:
+                    formatted_time = datetime.utcfromtimestamp(most_recent_timestamp).strftime(
+                        "%Y-%m-%d %H:%M:%S UTC"
+                    )
+                else:
+                    formatted_time = ""
+
+                most_recent_test_run_cell = cells.HCenter(cells.Text(formatted_time))
+                branch_test_status_cell = cells.HCenter(cells.Text(branch_test_status))
+                # autotesting is true while it lives in the hearts of men
+                # (or while we have a branchdesiredtesting object)
+                # we assume that if we have a BranchDesiredTesting object,
+                # if has runs_desired >= 1
+                autotesting = (
+                    "Yes"
+                    if test_schema.BranchDesiredTesting.lookupUnique(branch=branch) is not None
+                    else "No"
+                )
                 branch_row = ConstDict(str, object)(
                     {
-                        "Branch Name": cells.Clickable(branch.name, branch_view_on_click),
-                        "Last Run": "TODO",
-                        "Status": "TODO",
-                        "Autotesting": "Yes",
-                        "Latest Commit": cells.Clickable(
-                            branch.top_commit.hash, get_tl_link(branch.top_commit)
+                        "Branch Name": cells.HCenter(
+                            cells.Clickable(branch.name, branch_view_on_click)
+                        ),
+                        "Last Run": most_recent_test_run_cell,
+                        "Status": branch_test_status_cell,
+                        "Autotesting": cells.HCenter(cells.Text(autotesting)),
+                        "Latest Commit": cells.HCenter(
+                            cells.Clickable(
+                                branch.top_commit.hash, get_tl_link(branch.top_commit)
+                            )
                         ),
                         "Rerun All Tests": cells.HCenter(
                             cells.Button("", branch.top_commit.rerun_all_tests)
@@ -313,3 +357,6 @@ class Branch:
 
     repo_and_name = Index("repo", "name")
     top_commit = Indexed(Commit)
+
+    def set_desired_testing(self, desired_testing: DesiredTesting):
+        _ = test_schema.BranchDesiredTesting(branch=self, desired_testing=desired_testing)

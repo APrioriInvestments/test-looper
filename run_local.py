@@ -38,7 +38,7 @@ from testlooper.engine_schema import Status
 from testlooper.repo_schema import Branch, Commit, Repo, RepoConfig, TestConfig
 from testlooper.schemas import engine_schema, repo_schema, test_schema
 from testlooper.service import TestlooperService
-from testlooper.test_schema import StageResult, TestRunResult
+from testlooper.test_schema import DesiredTesting, StageResult, TestFilter, TestRunResult
 from testlooper.utils import TL_SERVICE_NAME
 
 
@@ -217,7 +217,7 @@ def main(argv=None):
 
                 # bootstrap the engine with a mock TestPlanGenerationTask and test plan.
                 task = engine_schema.TestPlanGenerationTask(commit=commits[0], status=Status())
-                plan = test_schema.TestPlan(plan=TEST_PLAN)
+                plan = test_schema.TestPlan(plan=TEST_PLAN, commit=commits[0])
                 _ = engine_schema.TestPlanGenerationResult(commit=commits[0], data=plan)
                 task.status.completed()
                 # generate some tests, suites, results
@@ -227,6 +227,19 @@ def main(argv=None):
                 # so we have a test plan for a given commit, and testsuitegenerationtasks.
                 # Read the tasks, mock the actual results of the suites.
                 generate_test_suites(commit=commits[0])
+                # Set a DesiredTesting for the primary branch
+                branch.set_desired_testing(
+                    DesiredTesting(
+                        runs_desired=1,
+                        fail_runs_desired=0,
+                        flake_runs_desired=0,
+                        new_runs_desired=0,
+                        filter=TestFilter(
+                            labels="Any", path_prefixes="Any", suites="Any", regex=None
+                        ),
+                    )
+                )
+                logging.info("Generated desired testing for branch %s", branch.name)
                 # Pretend to run our tests (would be run via run_tests_command)
                 for test in test_schema.Test.lookupAll():
                     test_results = test_schema.TestResults(

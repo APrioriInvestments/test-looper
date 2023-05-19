@@ -5,7 +5,7 @@ from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf
 
 from .engine_schema import Status
 from .schema_declarations import engine_schema, repo_schema, test_schema
-from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar
+from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
 
 TestFilter = NamedTuple(
     # Result is tests that satisfy:
@@ -18,7 +18,7 @@ TestFilter = NamedTuple(
     labels=OneOf("Any", None, TupleOf(str)),
     path_prefixes=OneOf("Any", TupleOf(str)),
     suites=OneOf("Any", TupleOf(str)),
-    regex=str,
+    regex=OneOf(None, str),
 )
 
 
@@ -176,6 +176,7 @@ class TestPlan:
     """Contents of YAML file produced by running generate-test-plan on a Commit."""
 
     plan = Indexed(str)
+    commit = Indexed(repo_schema.Commit)
 
     def display_cell(self) -> cells.Cell:
         """Simply display the yaml text."""
@@ -186,7 +187,11 @@ class TestPlan:
         layout += cells.Scrollable(cells.Code(self.plan))
         return add_menu_bar(
             cells.HCenter(layout),
-            {"TL": f"/services/{TL_SERVICE_NAME}"},
+            {
+                "TL": f"/services/{TL_SERVICE_NAME}",
+                self.commit.repo.name: get_tl_link(self.commit.repo),
+                self.commit.hash: get_tl_link(self.commit),
+            },
         )
 
 
