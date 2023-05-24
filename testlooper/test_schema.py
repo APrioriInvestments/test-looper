@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import functools
+import logging
 import object_database.web.cells as cells
 import yaml
 from object_database import Index, Indexed, SubscribeLazilyByDefault
@@ -9,6 +10,8 @@ from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf
 from .engine_schema import Status
 from .schema_declarations import engine_schema, repo_schema, test_schema
 from .utils import H1_FONTSIZE, H2_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+
+logger = logging.getLogger(__name__)
 
 TestFilter = NamedTuple(
     # Result is tests that satisfy:
@@ -76,6 +79,71 @@ class CommitDesiredTesting:
     def update_desired_testing(self, desired_testing):
         # TODO: trigger any engine_schema testing actions to perform the desired testing.
         self.desired_testing = desired_testing
+
+    def display_cell(self):
+        # This should, ideally, show you labels, suites, path_prefixes, regex that is
+        # available to you.
+        # Then generate a TestFilter, and show you the results of that filter.
+        # Then a button that alters desired testing and pings the engine
+
+        layout = cells.Padding(bottom=20) * cells.Text(
+            f"Configuring Testing for Commit {self.commit.hash}", fontSize=H1_FONTSIZE
+        )
+
+        left_side = cells.Text(
+            "Options are labels (Tuple of strs), path_prefixes (Tuple of strs),\
+            suites (Tuple of strs), regex (str)"
+        )
+
+        suites = cells.Slot()
+        labels = cells.Slot()
+        path_prefixes = cells.Slot()
+        regex = cells.Slot()
+
+        def onEsc(text_box, slot):
+            text_box.currentText.set(slot.get())
+
+        def onEnter(slot, text):
+            slot.set(text)
+
+        for slot, name in [
+            (labels, "Labels"),
+            (path_prefixes, "Path Prefixes"),
+            (suites, "Suites"),
+            (regex, "Regex"),
+        ]:
+            # have to do this in a slightly strange way to avoid referencing the box
+            # before assignment.
+            box = cells.SingleLineTextBox("")
+            box.onEsc = functools.partial(onEsc, text_box=box, slot=slot)
+            box.onEnter = functools.partial(onEnter, slot)
+            left_side += cells.Text(name + ":") >> box
+
+        def show_filter_results():
+            """Show the results of the configured filter"""
+            # TODO ping off an engine instance, which dry-runs the test filter
+            logger.info("Submitting filter to engine for dry-run")
+
+        left_side += cells.Button("Show Filter Results", show_filter_results)
+
+        right_side = cells.Text("Current filter values: ", fontSize=H2_FONTSIZE)
+        right_side += cells.Subscribed(lambda: cells.Text(labels.get()))
+        right_side += cells.Subscribed(lambda: cells.Text(path_prefixes.get()))
+        right_side += cells.Subscribed(lambda: cells.Text(suites.get()))
+        right_side += cells.Subscribed(lambda: cells.Text(regex.get()))
+
+        layout += cells.ResizablePanel(cells.Card(left_side), cells.Card(right_side))
+
+        # A split view with the text boxes on one side, and the slot values on the other.
+        # For now that will suffice
+        return add_menu_bar(
+            cells.HCenter(layout),
+            {
+                "TL": f"/services/{TL_SERVICE_NAME}",
+                self.commit.repo.name: get_tl_link(self.commit.repo),
+                self.commit.hash: get_tl_link(self.commit),
+            },
+        )
 
 
 @test_schema.define
