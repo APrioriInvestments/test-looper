@@ -221,13 +221,6 @@ def main(argv=None):
                 _ = engine_schema.TestPlanGenerationResult(commit=commits[0], data=plan)
                 task.status.completed()
                 # generate some tests, suites, results
-                commit_test_definition = test_schema.CommitTestDefinition(commit=commits[0])
-                logging.info("Generated commit test definition for commit %s", commits[0].hash)
-                commit_test_definition.set_test_plan(plan)
-                # so we have a test plan for a given commit, and testsuitegenerationtasks.
-                # Read the tasks, mock the actual results of the suites.
-                generate_test_suites(commit=commits[0])
-                # Set a DesiredTesting for the primary branch
                 branch.set_desired_testing(
                     DesiredTesting(
                         runs_desired=1,
@@ -240,23 +233,32 @@ def main(argv=None):
                     )
                 )
                 logging.info("Generated desired testing for branch %s", branch.name)
-                # Pretend to run our tests (would be run via run_tests_command)
-                for test in test_schema.Test.lookupAll():
-                    test_results = test_schema.TestResults(
-                        test=test, commit=commits[0], runs_desired=1, results=[]
-                    )
+                for commit in commits:
+                    commit_test_definition = test_schema.CommitTestDefinition(commit=commit)
+                    logging.info("Generated commit test definition for commit %s", commit.hash)
+                    commit_test_definition.set_test_plan(plan)
+                    # so we have a test plan for a given commit, and testsuitegenerationtasks.
+                    # Read the tasks, mock the actual results of the suites.
+                    generate_test_suites(commit=commit)
+                    # Pretend to run our tests (would be run via run_tests_command)
+                    for test in test_schema.Test.lookupAll():
+                        test_results = test_schema.TestResults(
+                            test=test, commit=commit, runs_desired=1, results=[]
+                        )
 
-                    result = TestRunResult(
-                        uuid=str(uuid.uuid4()),
-                        outcome=rng.choice(["passed", "failed", "skipped"], p=[0.8, 0.1, 0.1]),
-                        duration_ms=(duration := rng.uniform(low=50, high=500)),
-                        start_time=time.time(),
-                        stages={"call": StageResult(duration=duration, outcome="passed")},
-                    )
-                    test_results.add_test_run_result(result)
-                    logging.info(
-                        f"Adding test result '{result.outcome}' for test: {test.name}"
-                    )
+                        result = TestRunResult(
+                            uuid=str(uuid.uuid4()),
+                            outcome=rng.choice(
+                                ["passed", "failed", "skipped"], p=[0.5, 0.4, 0.1]
+                            ),
+                            duration_ms=(duration := rng.uniform(low=50, high=500)),
+                            start_time=time.time(),
+                            stages={"call": StageResult(duration=duration, outcome="passed")},
+                        )
+                        test_results.add_test_run_result(result)
+                        logging.info(
+                            f"Adding test result '{result.outcome}' for test: {test.name}"
+                        )
 
             while True:
                 time.sleep(0.1)
@@ -294,7 +296,7 @@ def generate_test_suites(commit):
 
         if output is not None:
             # parse the output into Tests.
-            test_dict = parse_list_tests_yaml(output)
+            test_dict = parse_list_tests_yaml(output, perf_test=False)
             suite = test_schema.TestSuite(
                 name=test_suite_task.name,
                 environment=test_suite_task.environment,
@@ -310,7 +312,9 @@ def generate_test_suites(commit):
     commit_test_definition.test_suites = suites_dict
 
 
-def parse_list_tests_yaml(list_tests_yaml: str) -> Dict[str, test_schema.Test]:
+def parse_list_tests_yaml(
+    list_tests_yaml: str, perf_test=False
+) -> Dict[str, test_schema.Test]:
     """Parse the output of the list_tests command, and generate Tests if required."""
     yaml_dict = yaml.safe_load(list_tests_yaml)
     parsed_dict = {}
@@ -323,6 +327,13 @@ def parse_list_tests_yaml(list_tests_yaml: str) -> Dict[str, test_schema.Test]:
                 name=test_name, labels=test_dict.get("labels", []), path=test_dict["path"]
             )  # TODO parent?
         parsed_dict[test_name] = test
+
+    if perf_test:
+        # add 5000 fake tests to each suite to check ODB performance
+        for i in range(5000):
+            parsed_dict[f"test_{i}"] = test_schema.Test(
+                name=f"test_{i}", labels=[], path="test.py"
+            )
     return parsed_dict
 
 

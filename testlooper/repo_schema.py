@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import logging
-from collections import deque
+from collections import deque, defaultdict
 from datetime import datetime
 import object_database.web.cells as cells
 from object_database import Index, Indexed
@@ -9,7 +9,7 @@ from typing import List
 
 from .schema_declarations import repo_schema, ui_schema, test_schema
 from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
-from .test_schema import DesiredTesting
+from .test_schema import DesiredTesting, TestResults
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +357,8 @@ class TestRow:
     test_name: str
     suite_name: str
     env_name: str
-    test: test_schema.Test
+    # test: test_schema.Test
+    test_results: ConstDict(str, TestResults)  # commit hash to result
 
 
 @repo_schema.define
@@ -418,48 +419,100 @@ class Branch:
             """Get all Tests for the last 10 commits
 
             TODO: make Slot-based, don't hardcode the number, likely to be unperformant"""
-            recent_tests = set()
+            recent_tests = defaultdict(dict)
+
             for commit in get_most_recent_commits(leftmost_commit.get(), N=10):
                 ctd = test_schema.CommitTestDefinition.lookupUnique(commit=commit)
                 if ctd is None:
                     continue
                 for suite_name, suite in ctd.test_suites.items():
                     for test in suite.tests.values():
-                        recent_tests.add(
+                        recent_tests[(suite_name, suite.environment.name, test.name)][
+                            commit.hash
+                        ] = test_schema.TestResults.lookupUnique(
+                            test_and_commit=(test, commit)
+                        )
+
+            # convert to TestRows, filter.
+            test_rows = []
+            for (suite, env, test_name), commit_to_result_dict in recent_tests.items():
+                if failed_tests_only.get():
+                    # then filter to only the test_rows with failed in the leftmost_commit.
+                    if (
+                        x := commit_to_result_dict.get(leftmost_commit.get().hash, None)
+                    ) is not None and x.runs_failed:
+                        test_rows.append(
                             TestRow(
-                                test_name=test.name,
-                                suite_name=suite_name,
-                                env_name=suite.environment.name,
-                                test=test,
+                                test_name=test_name,
+                                suite_name=suite,
+                                env_name=env,
+                                test_results=ConstDict(str, TestResults)(
+                                    commit_to_result_dict
+                                ),
                             )
                         )
-            # TODO filter using the slots.
-            return list(recent_tests)
+
+                elif all_failed_tests_only.get():
+                    # then if there is any failed test in the commit_to_result_dict, add it.
+                    for result in commit_to_result_dict.values():
+                        if result.runs_failed:
+                            test_rows.append(
+                                TestRow(
+                                    test_name=test_name,
+                                    suite_name=suite,
+                                    env_name=env,
+                                    test_results=ConstDict(str, TestResults)(
+                                        commit_to_result_dict
+                                    ),
+                                )
+                            )
+                            break
+                else:
+                    test_rows.append(
+                        TestRow(
+                            test_name=test_name,
+                            suite_name=suite,
+                            env_name=env,
+                            test_results=ConstDict(str, TestResults)(commit_to_result_dict),
+                        )
+                    )
+
+            return test_rows
 
         def renderer_fun(row: TestRow, field_name: str) -> cells.Cell:
             if field_name == "Test Name":
-                return row.test_name
+                # For now, assume unique test names.
+                return cells.Clickable(
+                    row.test_name,
+                    get_tl_link(test_schema.Test.lookupUnique(name=row.test_name)),
+                )
             elif field_name == "Suite Name":
                 return row.suite_name
             elif field_name == "Environment Name":
                 return row.env_name
             else:
-                # field name is a commit hash. Try to pull a TestResults
-                commit = repo_schema.Commit.lookupUnique(hash=field_name)
-                test_results = test_schema.TestResults.lookupUnique(
-                    test_and_commit=(row.test, commit)
-                )
-                if test_results is None:
+                # field name is a commit hash.
+                result = row.test_results.get(field_name)
+                if result is None:
                     return "NA"
                 else:
-                    return "X" if test_results.runs_failed > 0 else " "
+                    return cells.Clickable(
+                        cells.Text("FAILED", text_color="red")
+                        if result.runs_failed > 0
+                        else "PASSED",
+                        get_tl_link(result),
+                    )
 
-        table = cells.Table(
-            colFun=lambda: ["Test Name", "Suite Name", "Environment Name"]
-            + [x.hash for x in repo_schema.Commit.lookupAll()],
-            rowFun=row_fun,
-            headerFun=lambda x: x,
-            rendererFun=renderer_fun,
+        table = cells.Scrollable(
+            cells.Table(
+                colFun=lambda: ["Test Name", "Suite Name", "Environment Name"]
+                + [x.hash for x in repo_schema.Commit.lookupAll()],
+                rowFun=row_fun,
+                headerFun=lambda x: x,
+                rendererFun=renderer_fun,
+                sortColumn=0,
+                maxRowsPerPage=250,
+            )
         )
         layout += table
 
