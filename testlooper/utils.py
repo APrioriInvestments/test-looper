@@ -7,7 +7,8 @@ import object_database.web.cells as cells
 
 
 TL_SERVICE_NAME = "TestlooperService"
-HEADER_FONTSIZE = 25
+H1_FONTSIZE = 25
+H2_FONTSIZE = 20
 
 
 def get_tl_link(instance) -> str:

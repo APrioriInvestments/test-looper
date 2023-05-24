@@ -1,3 +1,6 @@
+from datetime import datetime
+
+import functools
 import object_database.web.cells as cells
 import yaml
 from object_database import Index, Indexed, SubscribeLazilyByDefault
@@ -5,7 +8,7 @@ from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf
 
 from .engine_schema import Status
 from .schema_declarations import engine_schema, repo_schema, test_schema
-from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+from .utils import H1_FONTSIZE, H2_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
 
 TestFilter = NamedTuple(
     # Result is tests that satisfy:
@@ -181,9 +184,7 @@ class TestPlan:
     def display_cell(self) -> cells.Cell:
         """Simply display the yaml text."""
 
-        layout = cells.Padding(bottom=20) * cells.Text(
-            "Repo Test Plan", fontSize=HEADER_FONTSIZE
-        )
+        layout = cells.Padding(bottom=20) * cells.Text("Repo Test Plan", fontSize=H1_FONTSIZE)
         layout += cells.Scrollable(cells.Code(self.plan))
         return add_menu_bar(
             cells.HCenter(layout),
@@ -283,6 +284,41 @@ class Test:
 
     _hash = OneOf(None, int)
 
+    def display_cell(self):
+        layout = cells.Padding(bottom=20) * cells.Text(
+            f"Test: {self.name}", fontSize=H1_FONTSIZE
+        )
+        layout += cells.Text("Labels: " + ", ".join(self.labels))
+        layout += cells.Text("Path: " + self.path)
+
+        def renderer_fun(row, col):
+            # row is a TestResult. For all info, for now, use the most recent result.
+            if col == "Status":
+                return "FAILED" if row.runs_failed else "PASSED"
+            elif col == "Duration":
+                return str(round(row.results[-1].duration_ms, 2)) + " ms"
+            elif col == "Commit":
+                return row.commit.hash
+
+        table = cells.Table(
+            colFun=lambda: ["Commit", "Status", "Duration"],
+            rowFun=functools.partial(test_schema.TestResults.lookupAll, test=self),
+            rendererFun=renderer_fun,
+            headerFun=lambda x: x,
+        )
+
+        layout += table
+
+        repo = test_schema.TestResults.lookupAny(test=self).commit.repo
+
+        return add_menu_bar(
+            cells.HCenter(layout),
+            {
+                "TL": f"/services/{TL_SERVICE_NAME}",
+                repo.name: get_tl_link(repo),
+            },
+        )
+
     def __hash__(self):
         if self._hash is None:
             self._hash = hash(tuple(self.name, tuple(hash(label) for label in self.labels)))
@@ -321,9 +357,6 @@ class Test:
                         return True
 
         return Unknown if missing else False
-
-    def display_cell(self):
-        return cells.Text(self.name)
 
 
 @test_schema.define
@@ -421,6 +454,47 @@ class TestResults:
         else:
             # TODO: log an error
             pass
+
+    def display_cell(self):
+        layout = cells.Padding(bottom=20) * cells.Text(
+            f"Results for {self.test.name} on commit {self.commit.hash}", fontSize=H1_FONTSIZE
+        )
+
+        layout += cells.Button("See all commits", get_tl_link(self.test))
+
+        layout += cells.Text("Summary:", fontSize=H2_FONTSIZE)
+        for attr_name, attr_val in [
+            ("Runs Desired", self.runs_desired),
+            ("Runs Completed", self.runs_completed),
+            ("Runs Pending", self.runs_pending),
+            ("Runs Passed", self.runs_passed),
+            ("Runs XPassed", self.runs_xpassed),
+            ("Runs Failed", self.runs_failed),
+            ("Runs XFailed", self.runs_xfailed),
+            ("Runs Errored", self.runs_errored),
+            ("Runs Skipped", self.runs_skipped),
+        ]:
+            layout += cells.Text(attr_name + ": " + str(attr_val))
+
+        layout += cells.Text("Individual Results:", fontSize=H2_FONTSIZE)
+        for result in self.results:
+            layout += cells.Text(f"UUID: {result.uuid}")
+            layout += cells.Text(f"Outcome: {result.outcome}")
+            layout += cells.Text(f"Duration: {result.duration_ms} ms")
+            formatted_time = datetime.utcfromtimestamp(result.start_time).strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
+            layout += cells.Text(f"Start Time: {formatted_time}")
+            layout += cells.Text("")
+
+        return add_menu_bar(
+            cells.HCenter(layout),
+            {
+                "TL": f"/services/{TL_SERVICE_NAME}",
+                self.commit.repo.name: get_tl_link(self.commit.repo),
+                self.commit.hash: get_tl_link(self.commit),
+            },
+        )
 
 
 def find_most_recent_test_results(test, commit, count=50, depth=1000):

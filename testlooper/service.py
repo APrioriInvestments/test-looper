@@ -14,7 +14,7 @@ from object_database import ServiceBase
 from typed_python import ConstDict
 
 from .schemas import engine_schema, repo_schema, test_schema, ui_schema
-from .utils import HEADER_FONTSIZE, add_menu_bar, get_tl_link
+from .utils import H1_FONTSIZE, add_menu_bar, get_tl_link
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ class Homepage:
             sortColumn="Name",
         )
 
-        layout = cells.Padding(bottom=20) * cells.Text("Repos", fontSize=HEADER_FONTSIZE)
+        layout = cells.Padding(bottom=20) * cells.Text("Repos", fontSize=H1_FONTSIZE)
         layout += cells.Card(repo_table)
 
         machines_table = cells.Table(
@@ -207,6 +207,6 @@ class Homepage:
         )
 
         layout += cells.Padding(top=50) * cells.Text(
-            "Machines", fontSize=HEADER_FONTSIZE
+            "Machines", fontSize=H1_FONTSIZE
         ) + cells.Card(machines_table)
         return add_menu_bar(cells.HCenter(layout), {"TL": service_object.name})

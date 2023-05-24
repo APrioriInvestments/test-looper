@@ -4,7 +4,7 @@ import object_database.web.cells as cells
 from object_database import Index, Indexed
 
 from .schema_declarations import repo_schema, test_schema, ui_schema
-from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+from .utils import H1_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +20,13 @@ class TestSuitesView:
     def display_cell(self):
         cells.ensureSubscribedSchema(test_schema)
         layout = cells.Padding(bottom=20) * cells.Text(
-            "Test Suites for commit " + self.commit.hash, fontSize=HEADER_FONTSIZE
+            "Test Suites for commit " + self.commit.hash, fontSize=H1_FONTSIZE
         )
         commit_test_definition = test_schema.CommitTestDefinition.lookupUnique(
             commit=self.commit
         )
         for test_suite_name, test_suite in commit_test_definition.test_suites.items():
-            layout += cells.Text(test_suite_name, fontSize=HEADER_FONTSIZE)
+            layout += cells.Text(test_suite_name, fontSize=H1_FONTSIZE)
             for test in test_suite.tests.keys():
                 layout += cells.Text(test)
 
@@ -97,7 +97,7 @@ class BranchView:
 
         repo = self.branch.repo
         layout = cells.Padding(bottom=20) * cells.Text(
-            "Branch: " + self.branch.name, fontSize=HEADER_FONTSIZE
+            "Branch: " + self.branch.name, fontSize=H1_FONTSIZE
         )
         layout += cells.Button("View test matrix", get_tl_link(self.branch))
         layout += cells.Table(

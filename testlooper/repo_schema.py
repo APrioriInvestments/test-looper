@@ -8,7 +8,7 @@ from typed_python import Alternative, ConstDict, OneOf
 from typing import List
 
 from .schema_declarations import repo_schema, ui_schema, test_schema
-from .utils import HEADER_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+from .utils import H1_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
 from .test_schema import DesiredTesting, TestResults
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ class Repo:
     def display_cell(self) -> cells.Cell:
         """Returns the Cells object for the repo page."""
         layout = cells.Padding(bottom=20) * cells.Text(
-            "Repo:" + self.name, fontSize=HEADER_FONTSIZE
+            "Repo:" + self.name, fontSize=H1_FONTSIZE
         )
         tl_config = self.primary_branch.top_commit.test_config
         test_plan = test_schema.TestPlan.lookupUnique(commit=self.primary_branch.top_commit)
@@ -188,7 +188,7 @@ class TestConfig:
     def display_cell(self) -> cells.Cell:
         """Simply display the yaml text."""
 
-        layout = cells.Padding(bottom=20) * cells.Text("Test Config", fontSize=HEADER_FONTSIZE)
+        layout = cells.Padding(bottom=20) * cells.Text("Test Config", fontSize=H1_FONTSIZE)
         layout += cells.Scrollable(cells.Code(self.config))
         return add_menu_bar(
             cells.HCenter(layout),
@@ -280,28 +280,30 @@ class Commit:
 
     def display_cell(self) -> cells.Cell:
         """Called by serviceDisplay, returns the Cell for the page representing this commit."""
-        layout = cells.Text("Commit: " + self.hash, fontSize=HEADER_FONTSIZE)
+        layout = cells.Text("Commit: " + self.hash, fontSize=H1_FONTSIZE)
         layout += cells.Padding(bottom=20) * cells.Text(self.commit_text)
 
-        # table with test run info for this commit
-        def row_fun():
-            return [
-                ConstDict(str, str)(
-                    {
-                        "Environment": "TODO",
-                        "Suite": "TODO",
-                        "Test Name": "TODO",
-                        "Status": "TODO",
-                        "Failure Rate": "TODO",
-                        "Failure Count": "TODO",
-                        "Duration": "TODO",
-                        "Currently Running": "TODO",
-                    }
-                )
-            ]
+        ctd = test_schema.CommitTestDefinition.lookupUnique(commit=self)
 
-        def renderer_fun(data, field):
-            return data[field]
+        def renderer_fun(row, field):
+            suite, test = row
+            result = test_schema.TestResults.lookupUnique(test_and_commit=(test, self))
+            if field == "Environment":
+                return suite.environment.name
+            elif field == "Suite":
+                return suite.name
+            elif field == "Test Name":
+                return test.name
+            elif field == "Status":
+                return "FAILED" if result.runs_failed else "PASSED"
+            elif field == "Failure Rate":
+                return round(result.fail_rate(), 2)
+            elif field == "Failure Count":
+                return result.runs_failed
+            elif field == "Duration":
+                return str(round(result.results[-1].duration_ms, 2)) + " ms"
+            elif field == "Currently Running":
+                return "True" if result.runs_pending else "False"
 
         table = cells.Table(
             colFun=lambda: [
@@ -314,19 +316,35 @@ class Commit:
                 "Duration",
                 "Currently Running",
             ],
-            rowFun=row_fun,
+            rowFun=lambda: [
+                (suite, test)
+                for suite in ctd.test_suites.values()
+                for test in suite.tests.values()
+            ],
             headerFun=lambda x: x,
             rendererFun=renderer_fun,
         )
+
+        def get_or_create_testing_config():
+            if (
+                commit_desired_testing := test_schema.CommitDesiredTesting.lookupUnique(
+                    commit=self
+                )
+            ) is None:
+                commit_desired_testing = test_schema.CommitDesiredTesting(commit=self)
+            return commit_desired_testing
+
+        def on_config_click():
+            config = get_or_create_testing_config()
+            return get_tl_link(config)
 
         layout += cells.HorizontalSequence(
             [
                 cells.Sequence(
                     [
-                        cells.Button("See diff", "/diff"),
                         cells.Button("Rerun all tests", self.rerun_all_tests),
                         cells.Button("Rerun failed tests", self.rerun_failed_tests),
-                        cells.Button("Configure rerun", "/configure_rerun"),
+                        cells.Button("Configure rerun", on_config_click),
                     ]
                 ),
                 table,
@@ -380,7 +398,7 @@ class Branch:
         failed_tests_only = cells.Slot(False)
         all_failed_tests_only = cells.Slot(False)
         layout = cells.Padding(bottom=20) * cells.Text(
-            "Branch: " + self.name, fontSize=HEADER_FONTSIZE
+            "Branch: " + self.name, fontSize=H1_FONTSIZE
         )
 
         def branch_view_on_click():
