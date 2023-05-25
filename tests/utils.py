@@ -9,9 +9,8 @@ from object_database import connect
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.util import genToken
 
-from testlooper.repo_schema import RepoConfig
-from testlooper.schemas import repo_schema, engine_schema, test_schema
-
+from testlooper.schema.repo_schema import RepoConfig
+from testlooper.schema.schema import repo_schema, engine_schema, test_schema
 
 
 @pytest.fixture(scope="module")
@@ -28,10 +27,11 @@ def testlooper_db():
             )
 
             database = connect("localhost", odb_port, token, retry=True)
-            database.subscribeToSchema(repo_schema,
-                                       test_schema,
-                                       engine_schema,
-                                       )
+            database.subscribeToSchema(
+                repo_schema,
+                test_schema,
+                engine_schema,
+            )
             yield database
 
         finally:

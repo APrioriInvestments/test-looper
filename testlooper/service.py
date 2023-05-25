@@ -13,7 +13,7 @@ import object_database.web.cells as cells
 from object_database import ServiceBase
 from typed_python import ConstDict
 
-from .schemas import engine_schema, repo_schema, test_schema, ui_schema
+from .schema.schema import engine_schema, repo_schema, test_schema, ui_schema
 from .utils import H1_FONTSIZE, add_menu_bar, get_tl_link
 
 logger = logging.getLogger(__name__)

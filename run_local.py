@@ -21,11 +21,11 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from typing import Dict
 
-from numpy.random import default_rng
-import uuid
 import yaml
+from numpy.random import default_rng
 from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
@@ -34,13 +34,17 @@ from object_database.web.ActiveWebService import ActiveWebService
 from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
 
-from testlooper.engine_schema import Status
-from testlooper.repo_schema import Branch, Commit, Repo, RepoConfig, TestConfig
-from testlooper.schemas import engine_schema, repo_schema, test_schema
+from testlooper.schema.engine_schema import Status
+from testlooper.schema.repo_schema import Branch, Commit, Repo, RepoConfig, TestConfig
+from testlooper.schema.schema import engine_schema, repo_schema, test_schema
+from testlooper.schema.test_schema import (
+    DesiredTesting,
+    StageResult,
+    TestFilter,
+    TestRunResult,
+)
 from testlooper.service import TestlooperService
-from testlooper.test_schema import DesiredTesting, StageResult, TestFilter, TestRunResult
 from testlooper.utils import TL_SERVICE_NAME
-
 
 rng = default_rng()
 
@@ -128,7 +132,7 @@ def main(argv=None):
     token = genToken()
     http_port = 8001
     odb_port = 8021
-    loglevel_name = "ERROR"
+    loglevel_name = "INFO"
 
     with tempfile.TemporaryDirectory() as tmp_dirname:
         server = None

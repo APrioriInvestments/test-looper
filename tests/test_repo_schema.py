@@ -3,7 +3,7 @@ Tests for Repo, Commit, Branch etc.
 """
 
 from .utils import testlooper_db, generate_branch_structure, clear_branch_structure
-from testlooper.schemas import repo_schema
+from testlooper.schema.schema import repo_schema
 
 testlooper_db = testlooper_db  # necessary to avoid flake8 errors
 

@@ -9,7 +9,7 @@ from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf
 
 from .engine_schema import Status
 from .schema_declarations import engine_schema, repo_schema, test_schema
-from .utils import H1_FONTSIZE, H2_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+from ..utils import H1_FONTSIZE, H2_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +201,8 @@ class CommitTestDefinition:
                         name=environment,
                         variables={},
                         image=Image.DockerImage(
-                            name="ubuntu:latest", with_docker=True, from_dockerfile=None
+                            name="ubuntu:latest",
+                            with_docker=True,
                         ),
                         min_ram_gb=0,
                         min_cores=0,

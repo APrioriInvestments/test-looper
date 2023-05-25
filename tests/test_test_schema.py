@@ -3,8 +3,8 @@
 import object_database.web.cells as cells
 import pytest
 
-from testlooper.engine_schema import Status
-from testlooper.schemas import engine_schema, repo_schema, test_schema
+from testlooper.schema.engine_schema import Status
+from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 
 from .utils import clear_branch_structure, generate_branch_structure, testlooper_db
 

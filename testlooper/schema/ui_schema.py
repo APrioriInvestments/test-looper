@@ -4,7 +4,7 @@ import object_database.web.cells as cells
 from object_database import Index, Indexed
 
 from .schema_declarations import repo_schema, test_schema, ui_schema
-from .utils import H1_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+from ..utils import H1_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
 
 logger = logging.getLogger(__name__)
 
