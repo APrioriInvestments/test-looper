@@ -10,7 +10,8 @@ import errno
 import tarfile
 import shutil
 import re
-import test_looper.core.OutOfProcessDownloader as OutOfProcessDownloader
+
+from .out_of_process_downloader import OutOfProcessDownloaderPool
 
 
 from contextlib import contextmanager
@@ -76,9 +77,7 @@ class Git:
 
         with _outOfProcessDownloaderPoolLock:
             if _outOfProcessDownloaderPool[0] is None:
-                _outOfProcessDownloaderPool[
-                    0
-                ] = OutOfProcessDownloader.OutOfProcessDownloaderPool(
+                _outOfProcessDownloaderPool[0] = OutOfProcessDownloaderPool(
                     8, actuallyRunOutOfProcess=sys.platform != "win32"
                 )
             self.outOfProcessDownloaderPool = _outOfProcessDownloaderPool[0]
@@ -509,7 +508,7 @@ class Git:
                 hashcode = hashcode.strip()
                 refname = refname.strip()
                 if refname.startswith("refs/heads/"):
-                    res[refname[len("refs/heads/") :]] = hashcode
+                    res[refname[len("refs/heads/") :]] = hashcode  # noqa: E203
 
         return res
 
