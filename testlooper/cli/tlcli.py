@@ -10,13 +10,13 @@ from .git.git import git
     "-v",
     "--verbose",
     count=True,
-    help="Increase Verbosity. Use mupliple times to increase verbosity, e.g., -vvv.",
+    help="Increase Verbosity. Use multiple times to increase verbosity, e.g., -vvv.",
 )
 @click.option(
     "-q",
     "--quiet",
     count=True,
-    help="Decrease Verbosity. Use mupliple times to decrease verbosity, e.g., -qqq.",
+    help="Decrease Verbosity. Use multiple times to decrease verbosity, e.g., -qqq.",
 )
 @click.pass_context
 def tlcli(ctx, verbose, quiet):
