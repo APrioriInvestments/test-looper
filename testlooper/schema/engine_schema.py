@@ -1,19 +1,27 @@
 import time
-from typed_python import TupleOf, NamedTuple, Dict, OneOf
-from object_database import Indexed
-from .schema_declarations import test_schema, engine_schema, repo_schema
-
-
 from enum import Enum
 
+from object_database import Indexed
+from typed_python import Dict, NamedTuple, OneOf, TupleOf
 
-StatusEvent = Enum("StatusEvent", ["CREATED", "STARTED", "FAILED", "TIMEDOUT", "COMPLETED"])
+from .schema_declarations import engine_schema, repo_schema, test_schema
+
+
+class StatusEvent(Enum):
+    CREATED = 1
+    STARTED = 2
+    FAILED = 3
+    TIMEDOUT = 4
+    COMPLETED = 5
+
+
+StatusChange = NamedTuple(status=StatusEvent, timestamp=float)
 
 
 class Status:
     def __init__(self):
         self._history = []  # list of (StatusEvent, Timestamp)
-        self._add_status(StatusEvent.CREATED)
+        self._add_status(StatusEvent.CREATED, when=time.time())
 
     @property
     def history(self):
@@ -29,30 +37,33 @@ class Status:
         self._history.append((status, when))
 
     def start(self):
-        self._add_status(StatusEvent.STARTED)
+        self._add_status(StatusEvent.STARTED, time.time())
 
     def fail(self):
-        self._add_status(StatusEvent.FAILED)
+        self._add_status(StatusEvent.FAILED, time.time())
 
     def timeout(self):
-        self._add_status(StatusEvent.TIMEDOUT)
+        self._add_status(StatusEvent.TIMEDOUT, time.time())
 
     def completed(self):
-        self._add_status(StatusEvent.COMPLETED)
+        self._add_status(StatusEvent.COMPLETED, time.time())
 
 
+@engine_schema.define
 class TaskBase:
-    _status_history = TupleOf(NamedTuple(status=StatusEvent, timestamp=float))
+    _status_history = TupleOf(StatusChange)
 
-    def __init__(self, when=None):
+    @classmethod
+    def create(cls, *args, when=None, **kwargs):
         if when is None:
             when = time.time()
-
-        self._add_status(StatusEvent.CREATED, when)
+        c = cls(*args, **kwargs)
+        c._add_status(StatusEvent.CREATED, when)
+        return c
 
     def _add_status(self, status: StatusEvent, when: float):
-        updated = self._status_history + [NamedTuple(status=status, timestamp=when)]
-
+        tu = StatusChange(status=status, timestamp=when)
+        updated = self._status_history + [tu]
         self._status_history = updated
 
     @property
@@ -69,13 +80,13 @@ class TaskBase:
         self._add_status(StatusEvent.STARTED, when)
 
     def failed(self, when: float):
-        self._add_status(StatusEvent.FAILED)
+        self._add_status(StatusEvent.FAILED, when)
 
     def timeout(self, when: float):
-        self._add_status(StatusEvent.TIMEDOUT)
+        self._add_status(StatusEvent.TIMEDOUT, when)
 
     def completed(self, when: float):
-        self._add_status(StatusEvent.COMPLETED)
+        self._add_status(StatusEvent.COMPLETED, when)
 
 
 @engine_schema.define
@@ -85,6 +96,7 @@ class TestPlanGenerationTask(TaskBase):
     commit = repo_schema.Commit
 
 
+@engine_schema.define
 class ResultBase:
     task = engine_schema.TaskBase
     error = str
@@ -97,6 +109,7 @@ class TestPlanGenerationResult(ResultBase):
     # TODO (Will): resolve the overlap between this and CommitTestDefinition
     commit = repo_schema.Commit
     data = test_schema.TestPlan  # YAML file of TestPlan
+    task = engine_schema.TestPlanGenerationTask
 
 
 @engine_schema.define
@@ -144,3 +157,8 @@ class TestRunTask:
     environment = Indexed(test_schema.Environment)
     commit = Indexed(repo_schema.Commit)
     status = Status
+
+
+@engine_schema.define
+class LocalEngineConfig:
+    config = str  # a placeholder

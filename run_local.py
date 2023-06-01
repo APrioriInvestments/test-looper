@@ -43,11 +43,12 @@ from testlooper.schema.test_schema import (
     TestFilter,
     TestRunResult,
 )
+from testlooper.engine.local_engine_service import LocalEngineService
+
 from testlooper.service import TestlooperService
 from testlooper.utils import TL_SERVICE_NAME
 
 rng = default_rng()
-
 TEST_PLAN = """
 version: 1
 environments:
@@ -183,8 +184,15 @@ def main(argv=None):
                 ServiceManager.startService("ActiveWebService", 1)
 
             with database.transaction():
+                # TL frontend - tests and repos
                 service = ServiceManager.createOrUpdateService(
                     TestlooperService, TL_SERVICE_NAME, target_count=1
+                )
+
+            with database.transaction():
+                # local engine - will eventually do all the below work.
+                service = ServiceManager.createOrUpdateService(
+                    LocalEngineService, "LocalEngineService", target_count=1
                 )
 
             # populate our db.
@@ -220,10 +228,13 @@ def main(argv=None):
                 repo.primary_branch = branch
 
                 # bootstrap the engine with a mock TestPlanGenerationTask and test plan.
-                task = engine_schema.TestPlanGenerationTask(commit=commits[0], status=Status())
+                task = engine_schema.TestPlanGenerationTask.create(commit=commits[0])
                 plan = test_schema.TestPlan(plan=TEST_PLAN, commit=commits[0])
-                _ = engine_schema.TestPlanGenerationResult(commit=commits[0], data=plan)
-                task.status.completed()
+                _ = engine_schema.TestPlanGenerationResult(
+                    commit=commits[0], data=plan, task=task
+                )
+
+                task.completed(when=time.time())
                 # generate some tests, suites, results
                 branch.set_desired_testing(
                     DesiredTesting(

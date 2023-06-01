@@ -5,8 +5,8 @@ import threading
 import time
 import yaml
 
-from testlooper.schemas import engine_schema, repo_schema
-from testlooper.engine_schema import StatusEvent
+from testlooper.schema.engine_schema import StatusEvent
+from testlooper.schema.schema import engine_schema, repo_schema
 
 
 class LocalEngineAgent:
@@ -80,7 +80,7 @@ class LocalEngineAgent:
         # commit_path = self.source_control_store.get_worktree(repo_config, commit_hash)
 
         # Run test-plan generation
-        with tempfile.TemporaryDirectory as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             test_plan_output = os.path.join(tmpdir, "test-plan.yaml")
 
             # Now run the test plan generation in docker

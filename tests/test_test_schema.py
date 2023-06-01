@@ -3,7 +3,6 @@
 import object_database.web.cells as cells
 import pytest
 
-from testlooper.schema.engine_schema import Status
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 
 from .utils import clear_branch_structure, generate_branch_structure, testlooper_db
@@ -79,9 +78,9 @@ def test_commit_test_definition_can_generate_example_plan(testlooper_db):
     with testlooper_db.transaction():
         cells.ensureSubscribedSchema(test_schema)
         commit = repo_schema.Commit.lookupUnique(hash="a")
-        _ = engine_schema.TestPlanGenerationTask(commit=commit, status=Status())
+        task = engine_schema.TestPlanGenerationTask.create(commit=commit)
         test_plan = test_schema.TestPlan(plan=TEST_PLAN, commit=commit)
-        _ = engine_schema.TestPlanGenerationResult(commit=commit, data=test_plan)
+        _ = engine_schema.TestPlanGenerationResult(commit=commit, data=test_plan, task=task)
         commit_test_definition = test_schema.CommitTestDefinition(commit=commit)
         commit_test_definition.set_test_plan(test_plan)
 
