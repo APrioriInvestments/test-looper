@@ -15,7 +15,7 @@ import errno
 import shutil
 import re
 
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 
 
 __all__ = ["Git"]
@@ -32,17 +32,30 @@ def is_sha_hash(committish):
 
 class Git:
     """
-    A simple wrapper for git operations.
+    A simple wrapper for local git operations.
     """
 
+    # if we have multiple Git instances for the same repo, our lock is pointless
+    # The lock may blow up in multithreaded/multiprocessing situations anyway.
+    _instances: Dict[str, "Git"] = {}
+
     def __init__(self, path_to_repo: str):
+        if path_to_repo in Git._instances:
+            raise ValueError(f"Git instance already exists for {path_to_repo}")
         assert isinstance(path_to_repo, str)
 
         self.path_to_repo = str(path_to_repo)
 
         self.git_repo_lock = threading.RLock()
 
-        self.testDefinitionLocationCache_ = {}
+    @classmethod
+    def get_instance(cls, path_to_repo: str) -> "Git":
+        if path_to_repo not in cls._instances:
+            cls._instances[path_to_repo] = cls(path_to_repo)
+        return cls._instances[path_to_repo]
+
+    def __repr__(self):
+        return f"Git({self.path_to_repo})"
 
     def init(self, bare=False) -> None:
         """Initialise a git repo at the given path."""
@@ -181,6 +194,19 @@ class Git:
             )
         except Exception:
             return False
+
+    def list_branches(self) -> List[str]:
+        """List the local branches, return a list of branch names."""
+        with self.git_repo_lock:
+            output = (
+                self._subprocess_check_output(["git", "branch", "--list"]).strip().split("\n")
+            )
+
+            output = [line.strip() for line in output if line]
+            output = [line[1:] if line[0] == "*" else line for line in output if line]
+            output = [line.strip() for line in output if line]
+
+            return [line for line in output if line and self._is_valid_branch_name(line)]
 
     def list_branches_for_remote(self, remote):
         """Check the remote and return a map from branchname->hash"""
@@ -343,6 +369,64 @@ class Git:
                 ["git", "log", "-n", "1", "--format=format:%H"]
             ).strip()
 
+    def get_top_local_commit(self, branch: str) -> str:
+        """For a given branch name, return the top commit hash."""
+        with self.git_repo_lock:
+            return self._subprocess_check_output(["git", "rev-parse", branch]).strip()
+
+    def get_commit_message(self, commit_hash: str) -> str:
+        """Return the commit message for a given hash."""
+        return self._subprocess_check_output(
+            ["git", "show", "-s", "--format=format:%B", commit_hash]
+        ).strip()
+
+    def get_commit_author(self, commit_hash: str) -> str:
+        """Return the commit author for a given hash."""
+        return self._subprocess_check_output(
+            ["git", "show", "-s", "--format=format:%an <%ae>", commit_hash]
+        ).strip()
+
+    def get_commit_chain(self, branch_name: str) -> List[Tuple[str, str]]:
+        """From the top commit of a branch, return a list of (child, parent) commits.
+        The final commit will just be (child,)
+        """
+        with self.git_repo_lock:
+            return [
+                tuple(x.split(" "))
+                for x in self._subprocess_check_output(
+                    ["git", "rev-list", "--parents", branch_name]
+                ).split("\n")
+                if x.strip()
+            ]
+
+    def create_worktree_and_reset_to_commit(self, commit_hash, directory):
+        with self.git_repo_lock:
+            assert isinstance(commit_hash, str), commit_hash
+
+            directory = os.path.abspath(directory)
+
+            self._ensure_directory_exists(directory)
+
+            logger.info("Resetting to revision %s in %s", commit_hash, directory)
+
+            if not self._pull_latest():
+                raise Exception("Couldn't pull latest from origin")
+
+            if not self.commit_exists(commit_hash):
+                raise Exception(
+                    "Can't find commit %s at %s" % (commit_hash, self.path_to_repo)
+                )
+
+            if self._subprocess_check_call(
+                ["git", "worktree", "add", "--detach", directory, commit_hash]
+            ):
+                raise Exception("Failed to create working tree at %s" % directory)
+
+            if self._subprocess_check_call_alt_dir(
+                directory, ["git", "reset", "--hard", commit_hash]
+            ):
+                raise Exception("Failed to checkout revision %s" % commit_hash)
+
     def _write_file(self, name, text):
         with open(os.path.join(self.path_to_repo, name), "w") as f:
             f.write(text)
@@ -386,32 +470,6 @@ class Git:
 
         return self._subprocess_check_call(["git", "checkout", revision]) == 0
 
-    def _reset_to_commit_in_directory(self, revision, directory):
-        with self.git_repo_lock:
-            assert isinstance(revision, str), revision
-
-            directory = os.path.abspath(directory)
-
-            self._ensure_directory_exists(directory)
-
-            logger.info("Resetting to revision %s in %s", revision, directory)
-
-            if not self._pull_latest():
-                raise Exception("Couldn't pull latest from origin")
-
-            if not self.commit_exists(revision):
-                raise Exception("Can't find commit %s at %s" % (revision, self.path_to_repo))
-
-            if self._subprocess_check_call(
-                ["git", "worktree", "add", "--detach", directory, revision]
-            ):
-                raise Exception("Failed to create working tree at %s" % directory)
-
-            if self._subprocess_check_call_alt_dir(
-                directory, ["git", "reset", "--hard", revision]
-            ):
-                raise Exception("Failed to checkout revision %s" % revision)
-
     def _ensure_directory_exists(self, path):
         if os.path.exists(path):
             return
@@ -452,18 +510,6 @@ class Git:
     def _is_initialized(self):
         logger.debug("Checking existence of %s", os.path.join(self.path_to_repo, ".git"))
         return os.path.exists(os.path.join(self.path_to_repo, ".git"))
-
-    def _list_branches(self):
-        with self.git_repo_lock:
-            output = (
-                self._subprocess_check_output(["git", "branch", "--list"]).strip().split("\n")
-            )
-
-            output = [line.strip() for line in output if line]
-            output = [line[1:] if line[0] == "*" else line for line in output if line]
-            output = [line.strip() for line in output if line]
-
-            return [line for line in output if line and self._is_valid_branch_name(line)]
 
     def _closest_branch_for(self, hash, remoteName="origin", maxSearchDepth=100):
         """Find the branch closest to a given commit"""

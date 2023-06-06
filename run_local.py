@@ -17,6 +17,7 @@
 # pyright: reportGeneralTypeIssues=false
 
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -30,12 +31,14 @@ from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
 from object_database.util import genToken, setupLogging
+from object_database.view import MultipleViewError
 from object_database.web.ActiveWebService import ActiveWebService
 from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
-
+from object_database.database_connection import DatabaseConnection
+from testlooper.engine.local_engine_service import LocalEngineService
 from testlooper.schema.engine_schema import Status
-from testlooper.schema.repo_schema import Branch, Commit, Repo, RepoConfig, TestConfig
+from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.schema.test_schema import (
     DesiredTesting,
@@ -43,106 +46,41 @@ from testlooper.schema.test_schema import (
     TestFilter,
     TestRunResult,
 )
-from testlooper.engine.local_engine_service import LocalEngineService
-
 from testlooper.service import TestlooperService
 from testlooper.utils import TL_SERVICE_NAME
 
+from testlooper.vcs import Git
+
 rng = default_rng()
-TEST_PLAN = """
-version: 1
-environments:
-    # linux docker container for running our pytest unit-tests
-    linux-pytest:
-        image:
-            docker:
-                dockerfile: .testlooper/environments/linux-pytest/Dockerfile
-        variables:
-            PYTHONPATH: ${REPO_ROOT}
-            TP_COMPILER_CACHE: /tp_compiler_cache
-            IS_TESTLOOPER: true
-        min-ram-gb: 10
-        custom-setup: |
-            python -m pip install --editable .
-
-    # native linux image necessary for running unit-tests that need to boot docker containers.
-    linux-native:
-        image:
-            base_ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
-        min-ram-gb: 10
-        custom-setup: |
-            sudo apt-get --yes install python3.8-venv
-            make install  # install pinned dependencies
-builds:
-    # skip
-
-suites:
-    pytest:
-        kind: unit
-        environment: linux-pytest
-        dependencies:
-        list-tests: |
-            ./collect_pytest_tests.py -m 'not docker'
-        run-tests: |
-            ./run_pytest_tests.py -m 'not docker'
-        timeout:
-
-    pytest-docker:
-        kind: unit
-        environment: linux-native
-        dependencies:
-        list-tests: |
-            ./collect_pytest_tests.py -m 'docker'
-        run-tests: |
-            ./run_pytest_tests.py  -m 'docker'
-        timeout:
-
-    matlab:
-        kind: unit
-        environment: linux-native
-        dependencies:
-        list-tests: |
-            .testlooper/collect_matlab_tests.sh
-        run-tests: |
-            .testlooper/run_matlab_tests.sh
-        timeout:
-"""
-
-TEST_CONFIG = """
-version: 1.0
-image:
-     docker:
-        dockerfile: .testlooper/environments/plan-generation/Dockerfile
-        with-docker: true
-
-variables:
-    PYTHONPATH: ${REPO_ROOT}
-
-command:
-    python .testlooper/generate_test_plan.py  --out ${TEST_PLAN_OUTPUT}
-"""
 
 logger = logging.getLogger(__name__)
 setupLogging()
+
+
+PATH_TO_CONFIG = ".testlooper/config.yaml"
+TOKEN = genToken()
+HTTP_PORT = 8001
+ODB_PORT = 8021
+LOGLEVEL_NAME = "INFO"
+
+with open(PATH_TO_CONFIG, "r") as flines:
+    TEST_CONFIG = flines.read()
 
 
 def main(argv=None):
     if argv is None:
         argv = sys.argv
 
-    token = genToken()
-    http_port = 8001
-    odb_port = 8021
-    loglevel_name = "INFO"
-
     with tempfile.TemporaryDirectory() as tmp_dirname:
         server = None
+        repo_name = "test_repo"
+        repo_path = os.path.join(tmp_dirname, repo_name)
         try:
             server = startServiceManagerProcess(
-                tmp_dirname, odb_port, token, loglevelName=loglevel_name, logDir=False
+                tmp_dirname, ODB_PORT, TOKEN, loglevelName=LOGLEVEL_NAME, logDir=False
             )
 
-            database = connect("localhost", odb_port, token, retry=True)
+            database = connect("localhost", ODB_PORT, TOKEN, retry=True)
             database.subscribeToSchema(
                 core_schema,
                 service_schema,
@@ -162,13 +100,13 @@ def main(argv=None):
                 service,
                 [
                     "--port",
-                    str(http_port),
+                    str(HTTP_PORT),
                     "--internal-port",
-                    "8001",
+                    str(HTTP_PORT + 1),
                     "--host",
                     "0.0.0.0",
                     "--log-level",
-                    loglevel_name,
+                    LOGLEVEL_NAME,
                 ],
             )
 
@@ -182,78 +120,50 @@ def main(argv=None):
 
             with database.transaction():
                 ServiceManager.startService("ActiveWebService", 1)
-
-            with database.transaction():
                 # TL frontend - tests and repos
                 service = ServiceManager.createOrUpdateService(
                     TestlooperService, TL_SERVICE_NAME, target_count=1
                 )
-
-            with database.transaction():
+                _ = engine_schema.LocalEngineConfig(path_to_git_repo=repo_path)
                 # local engine - will eventually do all the below work.
                 service = ServiceManager.createOrUpdateService(
                     LocalEngineService, "LocalEngineService", target_count=1
                 )
 
-            # populate our db.
-            commits = []
+            # first, make a Git object for our DB, generate a repo with branches and commits.
+            # then run a script to populate the db with schema objects.
+            test_repo = generate_repo(path_to_root=repo_path)
+            objects_from_repo(database, test_repo, repo_name)
+
             with database.transaction():
-                # add a repo with branches and commits
-                repo_config = RepoConfig.Local(path="/tmp/test_repo")
-                repo = Repo(name="test_repo", config=repo_config)
-                test_config = TestConfig(config=TEST_CONFIG, repo=repo)
-                commits.append(
-                    Commit(
-                        hash="12abc43a",
-                        repo=repo,
-                        commit_text="test commit",
-                        author="test author",
-                        test_config=test_config,
+                tasks = engine_schema.TestPlanGenerationTask.lookupAll()
+
+            # TODO make a Reactor to block until the test_plan is generated instead of polling.
+            plan_results = wait_for_test_plans(database, tasks)
+
+            with database.transaction():
+                for plan_result in plan_results:
+                    # each plan is associated with the top commit of a branch
+                    branch = repo_schema.Branch.lookupUnique(top_commit=plan_result.commit)
+                    # NB above is only doable because of our specific repo structure)
+                    assert branch is not None
+                    branch.set_desired_testing(
+                        DesiredTesting(
+                            runs_desired=1,
+                            fail_runs_desired=0,
+                            flake_runs_desired=0,
+                            new_runs_desired=0,
+                            filter=TestFilter(
+                                labels="Any", path_prefixes="Any", suites="Any", regex=None
+                            ),
+                        )
                     )
-                )
-
-                commits.append(
-                    Commit(
-                        hash="dada321fed",
-                        repo=repo,
-                        commit_text="initial commit",
-                        author="father of this repo",
-                        test_config=test_config,
-                    )
-                )
-
-                commits[0].set_parents([commits[1]])
-
-                branch = Branch(repo=repo, name="dev", top_commit=commits[0])
-                repo.primary_branch = branch
-
-                # bootstrap the engine with a mock TestPlanGenerationTask and test plan.
-                task = engine_schema.TestPlanGenerationTask.create(commit=commits[0])
-                plan = test_schema.TestPlan(plan=TEST_PLAN, commit=commits[0])
-                _ = engine_schema.TestPlanGenerationResult(
-                    commit=commits[0], data=plan, task=task
-                )
-
-                task.completed(when=time.time())
-                # generate some tests, suites, results
-                branch.set_desired_testing(
-                    DesiredTesting(
-                        runs_desired=1,
-                        fail_runs_desired=0,
-                        flake_runs_desired=0,
-                        new_runs_desired=0,
-                        filter=TestFilter(
-                            labels="Any", path_prefixes="Any", suites="Any", regex=None
-                        ),
-                    )
-                )
-                logging.info("Generated desired testing for branch %s", branch.name)
-                for commit in commits:
+                    logging.info("Generated desired testing for branch %s", branch.name)
+                    commit = branch.top_commit
                     commit_test_definition = test_schema.CommitTestDefinition(commit=commit)
                     logging.info("Generated commit test definition for commit %s", commit.hash)
-                    commit_test_definition.set_test_plan(plan)
-                    # so we have a test plan for a given commit, and testsuitegenerationtasks.
-                    # Read the tasks, mock the actual results of the suites.
+                    commit_test_definition.set_test_plan(plan_result.data)
+                    # TODO have this be Reactored.
                     generate_test_suites(commit=commit)
                     # Pretend to run our tests (would be run via run_tests_command)
                     for test in test_schema.Test.lookupAll():
@@ -316,7 +226,7 @@ def generate_test_suites(commit):
                 name=test_suite_task.name,
                 environment=test_suite_task.environment,
                 tests=test_dict,
-            )  # TODO parent?
+            )  # TODO this needs a TestSuiteParent
             suites_dict[suite.name] = suite
             logging.info(
                 f"Generated test suite {test_suite_task.name} with {len(test_dict)} tests."
@@ -340,7 +250,7 @@ def parse_list_tests_yaml(
         if test is None:
             test = test_schema.Test(
                 name=test_name, labels=test_dict.get("labels", []), path=test_dict["path"]
-            )  # TODO parent?
+            )  # TODO this needs a Parent
         parsed_dict[test_name] = test
 
     if perf_test:
@@ -350,6 +260,126 @@ def parse_list_tests_yaml(
                 name=f"test_{i}", labels=[], path="test.py"
             )
     return parsed_dict
+
+
+def generate_repo(path_to_root: str, path_to_config_dir=".testlooper") -> Git:
+    """Generate a temporary repo with a couple of branches and some commits.
+    Also generate a tests/ folder with some stuff in it for pytest to run.
+
+    repo structure:
+
+           A---B---C---D   master
+                \
+                 E---F   feature
+
+
+    We copy the config_dir from testlooper itself to allow tasks to run.
+    """
+    author = "author <author@aprioriinvestments.com>"
+    repo = Git.get_instance(path_to_root)
+    repo.init()
+
+    config_dir_contents = {}
+    for filename in os.listdir(path_to_config_dir):
+        new_path = os.path.join(path_to_config_dir, filename)
+        with open(os.path.abspath(new_path)) as flines:
+            config_dir_contents[new_path] = flines.read()
+
+    a = repo.create_commit(None, config_dir_contents, "message1", author=author)
+
+    b = repo.create_commit(
+        a,
+        {"file1": "hi", "dir1/file2": "contents", "dir2/file3": "contents"},
+        "message2",
+        author,
+    )
+    repo.detach_head()
+    dep_repo = Git.get_instance(path_to_root + "/dep_repo")
+    dep_repo.clone_from(path_to_root)  # have to do this to get proper branch structure (?)
+    c = dep_repo.create_commit(b, {"dir1/file2": "contents_2"}, "message3", author)
+    d = dep_repo.create_commit(c, {"dir2/file2": "contents_2"}, "message4", author)
+    assert dep_repo.push_commit(d, branch="master", force=False, create_branch=True)
+
+    e = dep_repo.create_commit(b, {"dir1/file2": "contents_3"}, "message5", author)
+    f = dep_repo.create_commit(e, {"dir2/file2": "contents_3"}, "message6", author)
+    assert dep_repo.push_commit(f, branch="feature", force=False, create_branch=True)
+
+    return repo
+
+
+def objects_from_repo(
+    db: DatabaseConnection, git_repo: Git, repo_name: str, primary_branch="master"
+) -> None:
+    """Commits for all commits, Branches for all branches, etc"""
+    with db.transaction():
+        repo_config = RepoConfig.Local(path=git_repo.path_to_repo)
+        repo = repo_schema.Repo(name=repo_name, config=repo_config)
+        test_config = repo_schema.TestConfig(config=TEST_CONFIG, repo=repo)
+
+        branches = git_repo.list_branches()
+        for branch_name in branches:
+            top_commit_hash = git_repo.get_top_local_commit(branch_name)
+            top_commit = lookup_or_create_commit(top_commit_hash, git_repo, repo, test_config)
+            branch = repo_schema.Branch(name=branch_name, repo=repo, top_commit=top_commit)
+            if branch_name == primary_branch:
+                repo.primary_branch = branch
+
+            # we have a Repo. We have the branches. We have the top commits.
+            # Now we need to propagate backwards to get the rest of the commits.
+            # This will duplicate effort for commits that are on multiple branches, but should
+            # be fine for testing/demo purposes.
+            commit_chain = git_repo.get_commit_chain(branch_name)[:-1]  # drop the root commit
+            for child_hash, parent_hash in commit_chain:
+                child = lookup_or_create_commit(child_hash, git_repo, repo, test_config)
+                parent = lookup_or_create_commit(parent_hash, git_repo, repo, test_config)
+                child.set_parents([parent])
+            _ = engine_schema.TestPlanGenerationTask.create(commit=top_commit)
+
+
+def lookup_or_create_commit(commit_hash, git_repo, repo, test_config) -> repo_schema.Commit:
+    """Lookup a commit by hash, or create it if it doesn't exist.
+
+    Args:
+        commit_hash: hash of the commit to lookup
+        git_repo: a Git object for the repo
+        repo: the ODB repo object
+        test_config: the ODB test_config object
+    """
+
+    commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+    if commit is None:
+        author = git_repo.get_commit_author(commit_hash)
+        message = git_repo.get_commit_message(commit_hash)
+        commit = repo_schema.Commit(
+            hash=commit_hash,
+            repo=repo,
+            commit_text=message,
+            author=author,
+            test_config=test_config,
+        )
+    return commit
+
+
+def wait_for_test_plans(db: DatabaseConnection, tasks, max_loops=5) -> None:
+    """Repeatedly poll the db until all <tasks> have a result."""
+    task_plans = set()
+    loop = 0
+    while len(task_plans) != len(tasks) and loop < max_loops:
+        time.sleep(0.25)
+        loop += 1
+        try:
+            with db.view():
+                for task in tasks:
+                    task_plan = engine_schema.TestPlanGenerationResult.lookupUnique(task=task)
+                    if task_plan is not None:
+                        task_plans.add(task_plan)
+        except MultipleViewError:
+            print("multiple view error")
+            continue
+    if loop == max_loops:
+        raise ValueError("never generated a test plan")
+
+    return task_plans
 
 
 if __name__ == "__main__":

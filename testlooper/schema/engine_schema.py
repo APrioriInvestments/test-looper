@@ -107,9 +107,9 @@ class TestPlanGenerationResult(ResultBase):
     """Keep track of a task to generate a test plan."""
 
     # TODO (Will): resolve the overlap between this and CommitTestDefinition
-    commit = repo_schema.Commit
+    commit = Indexed(repo_schema.Commit)
     data = test_schema.TestPlan  # YAML file of TestPlan
-    task = engine_schema.TestPlanGenerationTask
+    task = Indexed(engine_schema.TestPlanGenerationTask)
 
 
 @engine_schema.define
@@ -161,4 +161,4 @@ class TestRunTask:
 
 @engine_schema.define
 class LocalEngineConfig:
-    config = str  # a placeholder
+    path_to_git_repo = str
