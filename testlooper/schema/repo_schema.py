@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import logging
 from collections import deque, defaultdict
 from datetime import datetime
+import functools
 import object_database.web.cells as cells
 from object_database import Index, Indexed
 from typed_python import Alternative, ConstDict, OneOf
@@ -83,7 +84,7 @@ class Repo:
             branches = Branch.lookupAll(repo=self)
             for branch in branches:
                 # don't generate the object unless user clicks on the link.
-                def branch_view_on_click():
+                def branch_view_on_click(branch):
                     if not (
                         bv := ui_schema.BranchView.lookupUnique(
                             commit_and_branch=(branch.top_commit, branch)
@@ -131,7 +132,10 @@ class Repo:
                 branch_row = ConstDict(str, object)(
                     {
                         "Branch Name": cells.HCenter(
-                            cells.Clickable(branch.name, branch_view_on_click)
+                            cells.Clickable(
+                                branch.name,
+                                functools.partial(branch_view_on_click, branch=branch),
+                            )
                         ),
                         "Last Run": most_recent_test_run_cell,
                         "Status": branch_test_status_cell,
@@ -524,7 +528,7 @@ class Branch:
         table = cells.Scrollable(
             cells.Table(
                 colFun=lambda: ["Test Name", "Suite Name", "Environment Name"]
-                + [x.hash for x in repo_schema.Commit.lookupAll()],
+                + [x.hash for x in get_most_recent_commits(leftmost_commit.get(), N=10)],
                 rowFun=row_fun,
                 headerFun=lambda x: x,
                 rendererFun=renderer_fun,
