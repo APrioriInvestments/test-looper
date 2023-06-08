@@ -7,10 +7,17 @@ import yaml
 from object_database import Index, Indexed, SubscribeLazilyByDefault
 from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf, TupleOf
 
-from ..utils import H1_FONTSIZE, H2_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+from ..utils import (
+    H1_FONTSIZE,
+    H2_FONTSIZE,
+    TL_SERVICE_NAME,
+    add_menu_bar,
+    get_tl_link,
+    setup_logger,
+)
 from .schema_declarations import engine_schema, repo_schema, test_schema
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__, level=logging.INFO)
 
 TestFilter = NamedTuple(
     # Result is tests that satisfy:

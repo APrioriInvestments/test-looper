@@ -11,6 +11,7 @@ from object_database.database_connection import DatabaseConnection
 from testlooper.schema.engine_schema import StatusEvent
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.vcs import Git
+from testlooper.utils import setup_logger
 
 from typing import Dict
 
@@ -47,7 +48,7 @@ class LocalEngineAgent:
         self.source_control_store = source_control_store
         self.artifact_store = artifact_store
         self.clock = clock
-        self.logger = logging.getLogger(__name__)
+        self.logger = setup_logger(__name__, level=logging.INFO)
         self.threads = {}
         self.logger.setLevel(logging.INFO)
         self.logger.info("Initialized LocalEngineAgent")

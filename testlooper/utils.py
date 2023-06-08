@@ -2,6 +2,7 @@
 utils.py
 """
 import hashlib
+import logging
 import os
 
 from typing import Dict, Callable, Union
@@ -66,3 +67,41 @@ def hash_docker_build_env(dockerfile: str) -> str:
                 digest.update(fd.read())
 
     return digest.hexdigest()
+
+
+# Define the ANSI escape codes for various colors
+COLORS = {
+    "WARNING": "\033[33m",  # Yellow
+    "INFO": "\033[32m",  # Green
+    "DEBUG": "\033[34m",  # Blue
+    "CRITICAL": "\033[35m",  # Purple
+    "ERROR": "\033[31m",  # Red
+}
+
+# Reset color
+RESET = "\033[0m"
+
+
+class ColoredFormatter(logging.Formatter):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def format(self, record):
+        colored_record = record
+        levelname = colored_record.levelname
+        seq = COLORS.get(levelname, RESET)
+        colored_levelname = f"{seq}{levelname}{RESET}"
+        colored_record.levelname = colored_levelname
+        return super().format(colored_record)
+
+
+def setup_logger(name, level=logging.DEBUG):
+    """Function setup as many loggers as you want"""
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(ColoredFormatter("%(asctime)s - %(levelname)s - %(message)s"))
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.addHandler(handler)
+
+    return logger

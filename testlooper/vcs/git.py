@@ -17,11 +17,12 @@ import re
 
 from typing import Dict, Optional, List, Tuple
 
+from testlooper.utils import setup_logger
 
 __all__ = ["Git"]
 
-logger = logging.getLogger(__name__)
 
+logger = setup_logger(__name__, level=logging.INFO)
 
 sha_pattern = re.compile("^[a-f0-9]{40}$")
 

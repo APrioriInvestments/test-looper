@@ -1,7 +1,7 @@
 import time
 from enum import Enum
 
-from object_database import Indexed
+from object_database import Indexed, service_schema
 from typed_python import Dict, NamedTuple, OneOf, TupleOf
 
 from .schema_declarations import engine_schema, repo_schema, test_schema
@@ -159,3 +159,11 @@ class TestRunTask:
 @engine_schema.define
 class LocalEngineConfig:
     path_to_git_repo = str
+
+
+@engine_schema.define
+class GitWatcherConfig:
+    service = Indexed(service_schema.Service)
+    port = int
+    hostname = str
+    log_level = int

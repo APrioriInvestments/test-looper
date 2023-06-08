@@ -34,6 +34,7 @@ from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
 from object_database.database_connection import DatabaseConnection
 from testlooper.engine.local_engine_service import LocalEngineService
+from testlooper.engine.git_watcher_service import GitWatcherService
 from testlooper.schema.engine_schema import StatusEvent
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
@@ -44,13 +45,13 @@ from testlooper.schema.test_schema import (
     TestRunResult,
 )
 from testlooper.service import TestlooperService
-from testlooper.utils import TL_SERVICE_NAME
+from testlooper.utils import TL_SERVICE_NAME, setup_logger
 
 from testlooper.vcs import Git
 
 rng = default_rng()
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__, level=logging.INFO)
 setupLogging()
 
 
@@ -59,6 +60,7 @@ TOKEN = genToken()
 HTTP_PORT = 8001
 ODB_PORT = 8021
 LOGLEVEL_NAME = "ERROR"
+GIT_WATCHER_PORT = 9999
 
 with open(PATH_TO_CONFIG, "r") as flines:
     TEST_CONFIG = flines.read()
@@ -116,16 +118,29 @@ def main(argv=None):
             )
 
             with database.transaction():
+                git_service = ServiceManager.createOrUpdateService(
+                    GitWatcherService, "GitWatcherService", target_count=0
+                )
+
+            # config
+            GitWatcherService.configure(
+                database, git_service, hostname="localhost", port=GIT_WATCHER_PORT
+            )
+
+            with database.transaction():
                 ServiceManager.startService("ActiveWebService", 1)
                 # TL frontend - tests and repos
-                service = ServiceManager.createOrUpdateService(
+                _ = ServiceManager.createOrUpdateService(
                     TestlooperService, TL_SERVICE_NAME, target_count=1
                 )
-                _ = engine_schema.LocalEngineConfig(path_to_git_repo=repo_path)
                 # local engine - will eventually do all the below work.
-                service = ServiceManager.createOrUpdateService(
+                _ = engine_schema.LocalEngineConfig(path_to_git_repo=repo_path)
+                _ = ServiceManager.createOrUpdateService(
                     LocalEngineService, "LocalEngineService", target_count=1
                 )
+                # git watcher - receives post requests from git webhooks and
+                # updates ODB accordingly
+                ServiceManager.startService("GitWatcherService", 1)
 
             # first, make a Git object for our DB, generate a repo with branches and commits.
             # then run a script to populate the db with schema objects.
@@ -189,6 +204,7 @@ def main(argv=None):
             with database.transaction():
                 # Pretend to run all our tests (would be run via run_tests_command),
                 # ignoring suites, for all commits with a test definition
+                # For now we only run on the top commits of each branch (see 29k)
                 for commit_test_definition in test_schema.CommitTestDefinition.lookupAll():
                     commit = commit_test_definition.commit
                     logging.info("Running tests for commit %s", commit.hash)

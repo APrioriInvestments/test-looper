@@ -9,10 +9,10 @@ from typed_python import Alternative, ConstDict, OneOf
 from typing import List
 
 from .schema_declarations import repo_schema, ui_schema, test_schema
-from ..utils import H1_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+from ..utils import H1_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link, setup_logger
 from .test_schema import DesiredTesting, TestResults
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__, level=logging.INFO)
 
 
 # describe generic services, which can provide lots of different repos

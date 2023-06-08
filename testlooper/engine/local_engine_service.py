@@ -4,6 +4,10 @@ import object_database.web.cells as cells
 from testlooper.engine.local_engine_agent import LocalEngineAgent
 from testlooper.schema.schema import engine_schema
 from testlooper.vcs import Git
+from testlooper.utils import setup_logger
+
+
+logger = setup_logger(__name__, level=logging.INFO)
 
 
 class LocalEngineService(ServiceBase):
@@ -15,7 +19,7 @@ class LocalEngineService(ServiceBase):
     """
 
     def initialize(self):
-        logging.info("Initializing LocalEngineService")
+        logger.info("Initializing LocalEngineService")
         self.db.subscribeToSchema(engine_schema)
 
         with self.db.transaction():
