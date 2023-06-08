@@ -4,7 +4,7 @@ Runs pytest collection and format the results.
 
 Passes any arguments to pytest.
 """
-
+import os
 import subprocess
 import sys
 
@@ -44,15 +44,27 @@ def parse_to_yaml(pytest_output: str) -> str:
     - unique_test_name:
         path: str
         labels: List[str]
+
+
+    Assumes that if its a three-part tuple, with the first part being a path, then its
+    test output. (Needed because some versions of pytest output arbitrary lines that don't
+    follow this format.)
     """
 
     output = [line.strip().split("::") for line in pytest_output.split("\n")[:-4]]
     parsed_output = {}
-    for path, name, markers in output:
-        if markers:
-            parsed_output[name] = {"path": path, "labels": markers.split("|")}
-        else:
-            parsed_output[name] = {"path": path}
+
+    for line in output:
+        try:
+            path, name, markers = line
+            if not os.path.exists(path):
+                continue
+            if markers:
+                parsed_output[name] = {"path": path, "labels": markers.split("|")}
+            else:
+                parsed_output[name] = {"path": path}
+        except ValueError:
+            continue
     return yaml.dump(parsed_output)
 
 

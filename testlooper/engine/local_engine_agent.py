@@ -12,6 +12,8 @@ from testlooper.schema.engine_schema import StatusEvent
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.vcs import Git
 
+from typing import Dict
+
 # TODO
 # db and thread exception handling
 # thread management (final join)
@@ -49,16 +51,17 @@ class LocalEngineAgent:
         self.threads = {}
         self.logger.setLevel(logging.INFO)
         self.logger.info("Initialized LocalEngineAgent")
-
-    def generate_test_plans(self):
         self.db.subscribeToSchema(engine_schema, repo_schema, test_schema)
+
+    def run_task(self, task_type, executor_func):
+        """Run a task of the given type, using the given executor function."""
         with self.db.view():
-            tasks = engine_schema.TestPlanGenerationTask.lookupAll()
+            tasks = task_type.lookupAll()
         for task in tasks:
             with self.db.transaction():
                 if task.status[0] is StatusEvent.CREATED:
                     task.started(self.clock.time())
-                    thread = threading.Thread(target=self.generate_test_plan, args=(task,))
+                    thread = threading.Thread(target=executor_func, args=(task,))
                     thread.start()
                     thread.join()
                     self.threads[task] = thread
@@ -71,6 +74,12 @@ class LocalEngineAgent:
                     self.threads[task].join()
                     self.threads.pop(task)
 
+    def generate_test_plans(self):
+        self.run_task(engine_schema.TestPlanGenerationTask, self.generate_test_plan)
+
+    def generate_test_suites(self):
+        self.run_task(engine_schema.TestSuiteGenerationTask, self.generate_test_suite)
+
     def generate_test_plan(self, task):
         """Parse the task config, check out the repo, and run the specified command."""
         now = self.clock.time()
@@ -81,9 +90,8 @@ class LocalEngineAgent:
             commit_hash = commit.hash
             test_config_str = commit.test_config.config
 
-        # note the below is racey as the status is only changed at the end.
         if status is not StatusEvent.CREATED:
-            self._task_failed(task, f"Unexpected Task status {status}")
+            self._test_plan_task_failed(task, f"Unexpected Task status {status}")
             return
 
         else:
@@ -94,7 +102,7 @@ class LocalEngineAgent:
             test_config = yaml.safe_load(test_config_str)
         except Exception as e:
             self.logger.exception("Failed to parse test configuration")
-            self._task_failed(task, f"Failed to parse test configuration: {str(e)}")
+            self._test_plan_task_failed(task, f"Failed to parse test configuration: {str(e)}")
             return
 
         # Data-validation for test config
@@ -130,13 +138,14 @@ class LocalEngineAgent:
                 yaml.safe_load(test_plan_str)
             except Exception as e:
                 self.logger.exception("Failed to parse generated test-plan")
-                self._task_failed(task, f"Failed to parse generated test-plan: {str(e)}")
+                self._test_plan_task_failed(
+                    task, f"Failed to parse generated test-plan: {str(e)}"
+                )
                 return
 
             with self.db.transaction():
                 plan = test_schema.TestPlan(plan=test_plan_str, commit=commit)
 
-                # racey - see above
                 task.completed(self.clock.time())
                 try:
                     _ = engine_schema.TestPlanGenerationResult(
@@ -147,9 +156,109 @@ class LocalEngineAgent:
                     )
                 except Exception as e:
                     self.logger.exception("Failed to commit result to ODB.")
-                    self._task_failed(task, f"Failed to commit result to ODB: {str(e)}")
+                    self._test_plan_task_failed(
+                        task, f"Failed to commit result to ODB: {str(e)}"
+                    )
+                    return
 
-    def _task_failed(self, task, error):
+    def generate_test_suite(self, task):
+        """Generate some test suites."""
+        now = self.clock.time()
+
+        with self.db.view():
+            status, timestamp = task.status
+            commit = task.commit
+            commit_hash = task.commit.hash
+            # env = task.environment
+            # dependencies = task.dependencies
+            # timeout = task.timeout
+            list_tests_command = task.list_tests_command
+            # run_tests_command = task.run_tests_command
+
+        if status is not StatusEvent.CREATED:
+            self._test_suite_task_failed(task, f"Unexpected Task status {status}")
+            return
+
+        else:
+            with self.db.transaction():
+                task.started(now)
+
+        output = None
+        suite = None
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # TODO this should use a REPO_ROOT env variable, and be in docker
+            self.source_control_store.create_worktree_and_reset_to_commit(commit_hash, tmpdir)
+            repo_root = tmpdir
+            try:
+                output = subprocess.check_output(
+                    list_tests_command, shell=True, cwd=repo_root, encoding="utf-8"
+                )
+            except Exception as e:
+                self._test_suite_task_failed(task, f"Failed to list tests: {str(e)}")
+                return
+
+        if output is not None:
+            # parse the output into Tests.
+            test_dict = self.parse_list_tests_yaml(output, perf_test=False)
+            with self.db.transaction():
+                suite = test_schema.TestSuite(
+                    name=task.name,
+                    environment=task.environment,
+                    tests=test_dict,
+                )  # TODO this needs a TestSuiteParent
+                self.logger.info(
+                    f"Generated test suite {suite.name} with {len(test_dict)} tests."
+                )
+
+        with self.db.transaction():
+            try:
+                task.completed(self.clock.time())
+                _ = engine_schema.TestSuiteGenerationResult(
+                    task=task, error="", commit=commit, suite=suite
+                )
+            except Exception as e:
+                self.logger.exception("Failed to commit result to ODB.")
+                self._test_suite_task_failed(task, f"Failed to commit result to ODB: {str(e)}")
+                return
+
+    def parse_list_tests_yaml(
+        self, list_tests_yaml: str, perf_test=False
+    ) -> Dict[str, test_schema.Test]:
+        """Parse the output of the list_tests command, and generate Tests if required."""
+        yaml_dict = yaml.safe_load(list_tests_yaml)
+        parsed_dict = {}
+        with self.db.transaction():
+            for test_name, test_dict in yaml_dict.items():
+                test = test_schema.Test.lookupUnique(
+                    name_and_labels=(test_name, test_dict.get("labels", []))
+                )
+
+                if test is None:
+                    test = test_schema.Test(
+                        name=test_name,
+                        labels=test_dict.get("labels", []),
+                        path=test_dict["path"],
+                    )  # TODO this needs a Parent
+                parsed_dict[test_name] = test
+            if perf_test:
+                # add 5000 fake tests to each suite to check ODB performance
+                for i in range(5000):
+                    parsed_dict[f"test_{i}"] = test_schema.Test(
+                        name=f"test_{i}", labels=[], path="test.py"
+                    )
+        return parsed_dict
+
+    def _test_suite_task_failed(self, task, error):
+        with self.db.transaction():
+            engine_schema.TestSuiteGenerationResult(
+                task=task,
+                error=error,
+                commit=task.commit,
+                suite=None,
+            )
+            task.failed(self.clock.time())
+
+    def _test_plan_task_failed(self, task, error):
         with self.db.transaction():
             engine_schema.TestPlanGenerationResult(
                 task=task,

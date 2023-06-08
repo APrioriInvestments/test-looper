@@ -38,9 +38,9 @@ suites:
         environment: linux-pytest
         dependencies:
         list-tests: |
-            ./collect_pytest_tests.py -m 'not docker'
+            python .testlooper/collect_pytest_tests.py -m 'not docker'
         run-tests: |
-            ./run_pytest_tests.py -m 'not docker'
+            python .testlooper/run_pytest_tests.py -m 'not docker'
         timeout:
 
     pytest-docker:
@@ -48,9 +48,9 @@ suites:
         environment: linux-native
         dependencies:
         list-tests: |
-            ./collect_pytest_tests.py -m 'docker'
+            python .testlooper/collect_pytest_tests.py -m 'docker'
         run-tests: |
-            ./run_pytest_tests.py  -m 'docker'
+            python .testlooper/run_pytest_tests.py  -m 'docker'
         timeout:
 
     matlab:

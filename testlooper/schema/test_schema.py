@@ -1,15 +1,14 @@
-from datetime import datetime
-
 import functools
 import logging
+from datetime import datetime
+
 import object_database.web.cells as cells
 import yaml
 from object_database import Index, Indexed, SubscribeLazilyByDefault
 from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf, TupleOf
 
-from .engine_schema import Status
-from .schema_declarations import engine_schema, repo_schema, test_schema
 from ..utils import H1_FONTSIZE, H2_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link
+from .schema_declarations import engine_schema, repo_schema, test_schema
 
 logger = logging.getLogger(__name__)
 
@@ -212,12 +211,11 @@ class CommitTestDefinition:
                 list_tests = suite["list-tests"]
                 run_tests = suite["run-tests"]
                 timeout = suite["timeout"]
-                engine_schema.TestSuiteGenerationTask(
+                engine_schema.TestSuiteGenerationTask.create(
                     commit=self.commit,
                     environment=env,
                     dependencies=dependencies,
                     name=suite_name,
-                    status=Status(),
                     timeout=timeout,
                     list_tests_command=list_tests,
                     run_tests_command=run_tests,

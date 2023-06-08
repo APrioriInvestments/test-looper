@@ -129,25 +129,22 @@ class BuildDockerImageResult:
 
 
 @engine_schema.define
-class TestSuiteGenerationTask:
+class TestSuiteGenerationTask(TaskBase):
     commit = Indexed(repo_schema.Commit)  # TODO this index is likely temporary
     environment = test_schema.Environment
     # map of build name to build path, optional
     dependencies = OneOf(Dict(str, str), None)
     name = str
-    status = Status
     timeout = OneOf(int, None)  # seconds, optional
     list_tests_command = str
     run_tests_command = str
 
 
 @engine_schema.define
-class TestSuiteGenerationResult:
+class TestSuiteGenerationResult(ResultBase):
     commit = Indexed(repo_schema.Commit)
-    environment = test_schema.Environment
-    name = str
-    tests = str  # output of list-tests
-    status = Status
+    suite = OneOf(test_schema.TestSuite, None)
+    task = Indexed(engine_schema.TestSuiteGenerationTask)
 
 
 @engine_schema.define

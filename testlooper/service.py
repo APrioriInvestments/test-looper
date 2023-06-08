@@ -41,23 +41,6 @@ class TestlooperService(ServiceBase):
         else:
             return Homepage.display_cell(service_object)
 
-    # def doWork(self, shouldStop):
-    #     """Wake up every 100ms, look for Tasks, and execute them (very naively)."""
-    #     while not shouldStop.is_set():
-    #         time.sleep(0.1)
-    #         with self.db.transaction():
-    #             # get all the tasks
-    #             test_plan_generation_tasks = engine_schema.TestPlanGenerationTask.lookupAll()
-    #             for test_plan_generation_task in test_plan_generation_tasks:
-    #                 status = test_plan_generation_task.status
-    #                 if status == StatusEvent.CREATED:
-    #                     status.start()
-    #                     print('starting task', test_plan_generation_task)
-    #                     # here we should do dispatching/queueing etc, but for now just write
-    #                     # the test plan.
-
-    #             # execute
-
 
 class Homepage:
     @classmethod

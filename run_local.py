@@ -18,14 +18,11 @@
 
 import logging
 import os
-import subprocess
 import sys
 import tempfile
 import time
 import uuid
-from typing import Dict
 
-import yaml
 from numpy.random import default_rng
 from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
@@ -37,7 +34,7 @@ from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
 from object_database.database_connection import DatabaseConnection
 from testlooper.engine.local_engine_service import LocalEngineService
-from testlooper.schema.engine_schema import Status
+from testlooper.schema.engine_schema import StatusEvent
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.schema.test_schema import (
@@ -61,7 +58,7 @@ PATH_TO_CONFIG = ".testlooper/config.yaml"
 TOKEN = genToken()
 HTTP_PORT = 8001
 ODB_PORT = 8021
-LOGLEVEL_NAME = "INFO"
+LOGLEVEL_NAME = "ERROR"
 
 with open(PATH_TO_CONFIG, "r") as flines:
     TEST_CONFIG = flines.read()
@@ -139,8 +136,11 @@ def main(argv=None):
                 tasks = engine_schema.TestPlanGenerationTask.lookupAll()
 
             # TODO make a Reactor to block until the test_plan is generated instead of polling.
-            plan_results = wait_for_test_plans(database, tasks)
+            plan_results = wait_for_result(
+                database, tasks, engine_schema.TestPlanGenerationResult
+            )
 
+            # set the test plan
             with database.transaction():
                 for plan_result in plan_results:
                     # each plan is associated with the top commit of a branch
@@ -158,15 +158,45 @@ def main(argv=None):
                             ),
                         )
                     )
-                    logging.info("Generated desired testing for branch %s", branch.name)
+                    logger.info("Generated desired testing for branch %s", branch.name)
                     commit = branch.top_commit
                     commit_test_definition = test_schema.CommitTestDefinition(commit=commit)
-                    logging.info("Generated commit test definition for commit %s", commit.hash)
-                    commit_test_definition.set_test_plan(plan_result.data)
-                    # TODO have this be Reactored.
-                    generate_test_suites(commit=commit)
-                    # Pretend to run our tests (would be run via run_tests_command)
+                    logger.info("Generated commit test definition for commit %s", commit.hash)
+                    commit_test_definition.set_test_plan(
+                        plan_result.data
+                    )  # here is where the suite generation tasks are created
+                    # TODO generate CommitDesiredTestings
+
+            # wait for suites, then assign test results
+            with database.transaction():
+                tasks = engine_schema.TestSuiteGenerationTask.lookupAll()
+
+            suite_results = wait_for_result(
+                database, tasks, engine_schema.TestSuiteGenerationResult
+            )
+            # add the suites to the commit test definition once finished.
+            with database.transaction():
+                for result in suite_results:
+                    commit_test_definition = test_schema.CommitTestDefinition.lookupUnique(
+                        commit=result.commit
+                    )
+                    suites_dict = commit_test_definition.test_suites
+                    if suites_dict is None:
+                        suites_dict = {}
+                    suites_dict[result.suite.name] = result.suite
+                    commit_test_definition.test_suites = suites_dict
+
+            with database.transaction():
+                # Pretend to run all our tests (would be run via run_tests_command),
+                # ignoring suites, for all commits with a test definition
+                for commit_test_definition in test_schema.CommitTestDefinition.lookupAll():
+                    commit = commit_test_definition.commit
+                    logging.info("Running tests for commit %s", commit.hash)
                     for test in test_schema.Test.lookupAll():
+                        assert (
+                            test_schema.TestResults.lookupAny(test_and_commit=(test, commit))
+                            is None
+                        )
                         test_results = test_schema.TestResults(
                             test=test, commit=commit, runs_desired=1, results=[]
                         )
@@ -181,7 +211,7 @@ def main(argv=None):
                             stages={"call": StageResult(duration=duration, outcome="passed")},
                         )
                         test_results.add_test_run_result(result)
-                        logging.info(
+                        logger.info(
                             f"Adding test result '{result.outcome}' for test: {test.name}"
                         )
 
@@ -194,75 +224,9 @@ def main(argv=None):
                 server.wait()
 
 
-def generate_test_suites(commit):
-    test_suite_tasks = engine_schema.TestSuiteGenerationTask.lookupAll(commit=commit)
-
-    suites_dict = {}
-    for test_suite_task in test_suite_tasks:
-        # manually generate the test suite from the task and results
-        test_suite_generation_result = engine_schema.TestSuiteGenerationResult(
-            commit=test_suite_task.commit,
-            environment=test_suite_task.environment,
-            name=test_suite_task.name,
-            tests="",
-            status=Status(),
-        )
-        test_suite_generation_result.status.start()
-
-        list_tests_command = test_suite_task.list_tests_command
-        # FIXME unsafe execution of arbitrary code, should happen in the container.
-        try:
-            output = subprocess.check_output(
-                list_tests_command, shell=True, stderr=subprocess.DEVNULL, encoding="utf-8"
-            )
-        except subprocess.CalledProcessError as e:
-            logger.error("Failed to list tests: %s", str(e).replace("\n", " "))
-            output = None
-
-        if output is not None:
-            # parse the output into Tests.
-            test_dict = parse_list_tests_yaml(output, perf_test=False)
-            suite = test_schema.TestSuite(
-                name=test_suite_task.name,
-                environment=test_suite_task.environment,
-                tests=test_dict,
-            )  # TODO this needs a TestSuiteParent
-            suites_dict[suite.name] = suite
-            logging.info(
-                f"Generated test suite {test_suite_task.name} with {len(test_dict)} tests."
-            )
-        test_suite_generation_result.status.completed()
-    # add the suites to the commit test  definition once finished
-    commit_test_definition = test_schema.CommitTestDefinition.lookupUnique(commit=commit)
-    commit_test_definition.test_suites = suites_dict
-
-
-def parse_list_tests_yaml(
-    list_tests_yaml: str, perf_test=False
-) -> Dict[str, test_schema.Test]:
-    """Parse the output of the list_tests command, and generate Tests if required."""
-    yaml_dict = yaml.safe_load(list_tests_yaml)
-    parsed_dict = {}
-    for test_name, test_dict in yaml_dict.items():
-        test = test_schema.Test.lookupUnique(
-            name_and_labels=(test_name, test_dict.get("labels", []))
-        )
-        if test is None:
-            test = test_schema.Test(
-                name=test_name, labels=test_dict.get("labels", []), path=test_dict["path"]
-            )  # TODO this needs a Parent
-        parsed_dict[test_name] = test
-
-    if perf_test:
-        # add 5000 fake tests to each suite to check ODB performance
-        for i in range(5000):
-            parsed_dict[f"test_{i}"] = test_schema.Test(
-                name=f"test_{i}", labels=[], path="test.py"
-            )
-    return parsed_dict
-
-
-def generate_repo(path_to_root: str, path_to_config_dir=".testlooper") -> Git:
+def generate_repo(
+    path_to_root: str, path_to_config_dir=".testlooper", path_to_test_dir="tests"
+) -> Git:
     """Generate a temporary repo with a couple of branches and some commits.
     Also generate a tests/ folder with some stuff in it for pytest to run.
 
@@ -274,6 +238,7 @@ def generate_repo(path_to_root: str, path_to_config_dir=".testlooper") -> Git:
 
 
     We copy the config_dir from testlooper itself to allow tasks to run.
+    We copy the test dir from testlooper to give pytest something to grab.
     """
     author = "author <author@aprioriinvestments.com>"
     repo = Git.get_instance(path_to_root)
@@ -287,12 +252,20 @@ def generate_repo(path_to_root: str, path_to_config_dir=".testlooper") -> Git:
 
     a = repo.create_commit(None, config_dir_contents, "message1", author=author)
 
+    test_dir_contents = {}
+    for filename in os.listdir(path_to_test_dir):
+        new_path = os.path.join(path_to_test_dir, filename)
+        if os.path.isfile(new_path):
+            with open(os.path.abspath(new_path)) as flines:
+                test_dir_contents[new_path] = flines.read()
+
     b = repo.create_commit(
         a,
-        {"file1": "hi", "dir1/file2": "contents", "dir2/file3": "contents"},
+        test_dir_contents,
         "message2",
         author,
     )
+
     repo.detach_head()
     dep_repo = Git.get_instance(path_to_root + "/dep_repo")
     dep_repo.clone_from(path_to_root)  # have to do this to get proper branch structure (?)
@@ -360,26 +333,34 @@ def lookup_or_create_commit(commit_hash, git_repo, repo, test_config) -> repo_sc
     return commit
 
 
-def wait_for_test_plans(db: DatabaseConnection, tasks, max_loops=5) -> None:
+def wait_for_result(db: DatabaseConnection, tasks, result_type, max_loops=5):
     """Repeatedly poll the db until all <tasks> have a result."""
-    task_plans = set()
+    results = set()
+    tasks = set(tasks)
+    failed_tasks = set()
     loop = 0
-    while len(task_plans) != len(tasks) and loop < max_loops:
-        time.sleep(0.25)
+    while len(results) + len(failed_tasks) != len(tasks) and loop < max_loops:
+        time.sleep(1)
         loop += 1
         try:
             with db.view():
                 for task in tasks:
-                    task_plan = engine_schema.TestPlanGenerationResult.lookupUnique(task=task)
-                    if task_plan is not None:
-                        task_plans.add(task_plan)
+                    if task not in failed_tasks:
+                        status, _ = task.status
+                        if status == StatusEvent.FAILED:
+                            failed_tasks.add(task)
+                            continue
+                        result = result_type.lookupUnique(task=task)
+                        if result is not None:
+                            results.add(result)
         except MultipleViewError:
-            print("multiple view error")
+            logger.error("multiple view error")
             continue
-    if loop == max_loops:
-        raise ValueError("never generated a test plan")
 
-    return task_plans
+    if loop == max_loops:
+        raise ValueError(f"found {len(results)} results for {len(tasks)} tasks")
+
+    return list(results)
 
 
 if __name__ == "__main__":
