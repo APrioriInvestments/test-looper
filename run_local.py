@@ -145,6 +145,7 @@ def main(argv=None):
             # first, make a Git object for our DB, generate a repo with branches and commits.
             # then run a script to populate the db with schema objects.
             test_repo = generate_repo(path_to_root=repo_path)
+            print("repo location", test_repo)
             objects_from_repo(database, test_repo, repo_name)
 
             with database.transaction():
@@ -266,7 +267,18 @@ def generate_repo(
         with open(os.path.abspath(new_path)) as flines:
             config_dir_contents[new_path] = flines.read()
 
-    a = repo.create_commit(None, config_dir_contents, "message1", author=author)
+    # check for a post-commit hook in the config dir. If it exists, stick it
+    # in .git/hooks
+    if os.path.exists(os.path.join(path_to_config_dir, "post-commit")):
+        with open(os.path.join(path_to_config_dir, "post-commit")) as flines:
+            post_commit = flines.read()
+        with open(os.path.join(path_to_root, ".git/hooks/post-commit"), "w") as flines:
+            flines.write(post_commit)
+        os.chmod(os.path.join(path_to_root, ".git/hooks/post-commit"), 0o755)
+
+    a = repo.create_commit(
+        None, config_dir_contents, "message1", author=author, on_branch="master"
+    )
 
     test_dir_contents = {}
     for filename in os.listdir(path_to_test_dir):
@@ -280,19 +292,22 @@ def generate_repo(
         test_dir_contents,
         "message2",
         author,
+        on_branch="master",
     )
 
-    repo.detach_head()
-    dep_repo = Git.get_instance(path_to_root + "/dep_repo")
-    dep_repo.clone_from(path_to_root)  # have to do this to get proper branch structure (?)
-    c = dep_repo.create_commit(b, {"dir1/file2": "contents_2"}, "message3", author)
-    d = dep_repo.create_commit(c, {"dir2/file2": "contents_2"}, "message4", author)
-    assert dep_repo.push_commit(d, branch="master", force=False, create_branch=True)
+    c = repo.create_commit(
+        b, {"dir1/file2": "contents_2"}, "message3", author, on_branch="master"
+    )
+    _ = repo.create_commit(
+        c, {"dir2/file2": "contents_2"}, "message4", author, on_branch="master"
+    )
 
-    e = dep_repo.create_commit(b, {"dir1/file2": "contents_3"}, "message5", author)
-    f = dep_repo.create_commit(e, {"dir2/file2": "contents_3"}, "message6", author)
-    assert dep_repo.push_commit(f, branch="feature", force=False, create_branch=True)
-
+    e = repo.create_commit(
+        b, {"dir1/file2": "contents_3"}, "message5", author, on_branch="feature"
+    )
+    _ = repo.create_commit(
+        e, {"dir2/file2": "contents_3"}, "message6", author, on_branch="feature"
+    )
     return repo
 
 

@@ -116,6 +116,7 @@ class Git:
         commit_message: str,
         author: str,
         timestamp_override=None,
+        on_branch=None,
     ) -> str:
         """Create a new commit.
 
@@ -123,6 +124,8 @@ class Git:
             commit_hash - the base commit to use, or None if we should use the current commit.
             file_contents - a dictionary of modifications to make. Keys are paths.
                 Values are strings of file contents, or None which means to delete the file.
+            on_branch - if not None, a string representing the branch to create or checkout
+                for the commit.
 
         Returns:
             the sha hash of the new commit.
@@ -131,7 +134,21 @@ class Git:
 
         with self.git_repo_lock:
             if commit_hash is not None:
-                self._reset_to_commit(commit_hash)
+                # if we're making a new branch, reset_to_commit would drop commits.
+                if on_branch is None:
+                    assert self._reset_to_commit(commit_hash)
+                else:
+                    assert self._is_valid_branch_name(on_branch)
+                    if on_branch not in self.list_branches():
+                        self._subprocess_check_call(
+                            ["git", "checkout", "-b", on_branch, commit_hash]
+                        )
+                    else:
+                        if not self.get_top_local_commit(on_branch) == commit_hash:
+                            raise NotImplementedError(
+                                "Can't create a commit on a branch that already exists \
+                                        and has a different head."
+                            )
 
             for file, contents in file_contents.items():
                 path = os.path.join(self.path_to_repo, file)

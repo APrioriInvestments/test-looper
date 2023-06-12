@@ -62,6 +62,7 @@ class GitWatcherService(ServiceBase):
                 "details": "No data provided or not JSON format",
             }, 400
         try:
+            self._logger.info('Received data: "%s"' % data)
             message = "ODB updated successfully"
             self._logger.info(message)
             return {"message": message}, 201
