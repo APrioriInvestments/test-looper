@@ -72,8 +72,12 @@ class Repo:
             [
                 cells.Padding(padding=10) * b
                 for b in [
-                    cells.Button("View testlooper config", get_tl_link(tl_config)),
-                    cells.Button("View test plan", get_tl_link(test_plan)),
+                    cells.Button(
+                        "View testlooper config", get_tl_link(tl_config) if tl_config else ""
+                    ),
+                    cells.Button(
+                        "View test plan", get_tl_link(test_plan) if test_plan else ""
+                    ),
                 ]
             ]
         )

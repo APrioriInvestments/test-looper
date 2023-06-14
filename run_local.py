@@ -27,7 +27,7 @@ from numpy.random import default_rng
 from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
-from object_database.util import genToken, setupLogging
+from object_database.util import genToken
 from object_database.view import MultipleViewError
 from object_database.web.ActiveWebService import ActiveWebService
 from object_database.web.ActiveWebServiceSchema import active_webservice_schema
@@ -51,8 +51,8 @@ from testlooper.vcs import Git
 
 rng = default_rng()
 
+# setupLogging()
 logger = setup_logger(__name__, level=logging.INFO)
-setupLogging()
 
 
 PATH_TO_CONFIG = ".testlooper/config.yaml"
@@ -142,11 +142,30 @@ def main(argv=None):
                 # updates ODB accordingly
                 ServiceManager.startService("GitWatcherService", 1)
 
+            # for now, need a Repo object so that the watcher knows how to link stuff,
+            # and an initial primary branch
+            with database.transaction():
+                repo_config = RepoConfig.Local(path=repo_path)
+                repo = repo_schema.Repo(name=repo_name, config=repo_config)
+                _ = repo_schema.TestConfig(config=TEST_CONFIG, repo=repo)
+                _ = repo_schema.Branch(repo=repo, name="master")
+
             # first, make a Git object for our DB, generate a repo with branches and commits.
             # then run a script to populate the db with schema objects.
-            test_repo = generate_repo(path_to_root=repo_path)
-            print("repo location", test_repo)
-            objects_from_repo(database, test_repo, repo_name)
+            _ = generate_repo(path_to_root=repo_path)
+
+            # TODO get the primary branch from a config file
+            with database.transaction():
+                if (
+                    branch := repo_schema.Branch.lookupUnique(repo_and_name=(repo, "master"))
+                ) is not None:
+                    repo.primary_branch = branch
+                elif (
+                    branch := repo_schema.Branch.lookupUnique(repo_and_name=(repo, "main"))
+                ) is not None:
+                    repo.primary_branch = branch
+                else:
+                    raise ValueError("No primary branch found")
 
             with database.transaction():
                 tasks = engine_schema.TestPlanGenerationTask.lookupAll()
@@ -156,13 +175,10 @@ def main(argv=None):
                 database, tasks, engine_schema.TestPlanGenerationResult
             )
 
-            # set the test plan
+            # set desired testing for all our branches
             with database.transaction():
-                for plan_result in plan_results:
-                    # each plan is associated with the top commit of a branch
-                    branch = repo_schema.Branch.lookupUnique(top_commit=plan_result.commit)
-                    # NB above is only doable because of our specific repo structure)
-                    assert branch is not None
+                branches = repo_schema.Branch.lookupAll(repo=repo)
+                for branch in branches:
                     branch.set_desired_testing(
                         DesiredTesting(
                             runs_desired=1,
@@ -175,13 +191,14 @@ def main(argv=None):
                         )
                     )
                     logger.info("Generated desired testing for branch %s", branch.name)
-                    commit = branch.top_commit
+                # TODO generate CommitDesiredTestings
+                for plan_result in plan_results:
+                    commit = plan_result.commit
                     commit_test_definition = test_schema.CommitTestDefinition(commit=commit)
                     logger.info("Generated commit test definition for commit %s", commit.hash)
                     commit_test_definition.set_test_plan(
                         plan_result.data
                     )  # here is where the suite generation tasks are created
-                    # TODO generate CommitDesiredTestings
 
             # wait for suites, then assign test results
             with database.transaction():
@@ -208,7 +225,7 @@ def main(argv=None):
                 # For now we only run on the top commits of each branch (see 29k)
                 for commit_test_definition in test_schema.CommitTestDefinition.lookupAll():
                     commit = commit_test_definition.commit
-                    logging.info("Running tests for commit %s", commit.hash)
+                    logger.info("Running tests for commit %s", commit.hash)
                     for test in test_schema.Test.lookupAll():
                         assert (
                             test_schema.TestResults.lookupAny(test_and_commit=(test, commit))
@@ -267,18 +284,21 @@ def generate_repo(
         with open(os.path.abspath(new_path)) as flines:
             config_dir_contents[new_path] = flines.read()
 
-    # check for a post-commit hook in the config dir. If it exists, stick it
+    # check for a post-receive hook in the config dir. If it exists, stick it
     # in .git/hooks
-    if os.path.exists(os.path.join(path_to_config_dir, "post-commit")):
-        with open(os.path.join(path_to_config_dir, "post-commit")) as flines:
+    if os.path.exists(os.path.join(path_to_config_dir, "post-receive")):
+        with open(os.path.join(path_to_config_dir, "post-receive")) as flines:
             post_commit = flines.read()
-        with open(os.path.join(path_to_root, ".git/hooks/post-commit"), "w") as flines:
+        with open(os.path.join(path_to_root, ".git/hooks/post-receive"), "w") as flines:
             flines.write(post_commit)
-        os.chmod(os.path.join(path_to_root, ".git/hooks/post-commit"), 0o755)
+        os.chmod(os.path.join(path_to_root, ".git/hooks/post-receive"), 0o755)
 
-    a = repo.create_commit(
-        None, config_dir_contents, "message1", author=author, on_branch="master"
-    )
+    a = repo.create_commit(None, config_dir_contents, "message1", author=author)
+
+    # need to use a dependent repo for the push hooks to work
+    repo.detach_head()
+    dep_repo = Git.get_instance(path_to_root + "/dep_repo")
+    dep_repo.clone_from(path_to_root)
 
     test_dir_contents = {}
     for filename in os.listdir(path_to_test_dir):
@@ -286,85 +306,27 @@ def generate_repo(
         if os.path.isfile(new_path):
             with open(os.path.abspath(new_path)) as flines:
                 test_dir_contents[new_path] = flines.read()
-
-    b = repo.create_commit(
+    b = dep_repo.create_commit(
         a,
         test_dir_contents,
         "message2",
         author,
         on_branch="master",
     )
+    assert dep_repo.push_commit(b, branch="master", force=False, create_branch=True)
 
-    c = repo.create_commit(
-        b, {"dir1/file2": "contents_2"}, "message3", author, on_branch="master"
-    )
-    _ = repo.create_commit(
-        c, {"dir2/file2": "contents_2"}, "message4", author, on_branch="master"
-    )
+    c = dep_repo.create_commit(b, {"dir1/file2": "contents_2"}, "message3", author)
+    d = dep_repo.create_commit(c, {"dir2/file2": "contents_2"}, "message4", author)
+    assert dep_repo.push_commit(d, branch="master", force=False)
 
-    e = repo.create_commit(
-        b, {"dir1/file2": "contents_3"}, "message5", author, on_branch="feature"
-    )
-    _ = repo.create_commit(
-        e, {"dir2/file2": "contents_3"}, "message6", author, on_branch="feature"
-    )
+    e = dep_repo.create_commit(b, {"dir1/file2": "contents_3"}, "message5", author)
+    f = dep_repo.create_commit(e, {"dir2/file2": "contents_3"}, "message6", author)
+    assert dep_repo.push_commit(f, branch="feature", force=False, create_branch=True)
+
     return repo
 
 
-def objects_from_repo(
-    db: DatabaseConnection, git_repo: Git, repo_name: str, primary_branch="master"
-) -> None:
-    """Commits for all commits, Branches for all branches, etc"""
-    with db.transaction():
-        repo_config = RepoConfig.Local(path=git_repo.path_to_repo)
-        repo = repo_schema.Repo(name=repo_name, config=repo_config)
-        test_config = repo_schema.TestConfig(config=TEST_CONFIG, repo=repo)
-
-        branches = git_repo.list_branches()
-        for branch_name in branches:
-            top_commit_hash = git_repo.get_top_local_commit(branch_name)
-            top_commit = lookup_or_create_commit(top_commit_hash, git_repo, repo, test_config)
-            branch = repo_schema.Branch(name=branch_name, repo=repo, top_commit=top_commit)
-            if branch_name == primary_branch:
-                repo.primary_branch = branch
-
-            # we have a Repo. We have the branches. We have the top commits.
-            # Now we need to propagate backwards to get the rest of the commits.
-            # This will duplicate effort for commits that are on multiple branches, but should
-            # be fine for testing/demo purposes.
-            commit_chain = git_repo.get_commit_chain(branch_name)[:-1]  # drop the root commit
-            for child_hash, parent_hash in commit_chain:
-                child = lookup_or_create_commit(child_hash, git_repo, repo, test_config)
-                parent = lookup_or_create_commit(parent_hash, git_repo, repo, test_config)
-                child.set_parents([parent])
-            _ = engine_schema.TestPlanGenerationTask.create(commit=top_commit)
-
-
-def lookup_or_create_commit(commit_hash, git_repo, repo, test_config) -> repo_schema.Commit:
-    """Lookup a commit by hash, or create it if it doesn't exist.
-
-    Args:
-        commit_hash: hash of the commit to lookup
-        git_repo: a Git object for the repo
-        repo: the ODB repo object
-        test_config: the ODB test_config object
-    """
-
-    commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
-    if commit is None:
-        author = git_repo.get_commit_author(commit_hash)
-        message = git_repo.get_commit_message(commit_hash)
-        commit = repo_schema.Commit(
-            hash=commit_hash,
-            repo=repo,
-            commit_text=message,
-            author=author,
-            test_config=test_config,
-        )
-    return commit
-
-
-def wait_for_result(db: DatabaseConnection, tasks, result_type, max_loops=5):
+def wait_for_result(db: DatabaseConnection, tasks, result_type, max_loops=10):
     """Repeatedly poll the db until all <tasks> have a result."""
     results = set()
     tasks = set(tasks)
@@ -384,6 +346,7 @@ def wait_for_result(db: DatabaseConnection, tasks, result_type, max_loops=5):
                         result = result_type.lookupUnique(task=task)
                         if result is not None:
                             results.add(result)
+
         except MultipleViewError:
             logger.error("multiple view error")
             continue
