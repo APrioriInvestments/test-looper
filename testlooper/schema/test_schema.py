@@ -223,7 +223,7 @@ class CommitTestDefinition:
                     environment=env,
                     dependencies=dependencies,
                     name=suite_name,
-                    timeout=timeout,
+                    timeout_seconds=timeout,
                     list_tests_command=list_tests,
                     run_tests_command=run_tests,
                 )

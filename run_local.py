@@ -330,18 +330,18 @@ def wait_for_result(db: DatabaseConnection, tasks, result_type, max_loops=10):
     """Repeatedly poll the db until all <tasks> have a result."""
     results = set()
     tasks = set(tasks)
-    failed_tasks = set()
+    failed_or_timedout_tasks = set()
     loop = 0
-    while len(results) + len(failed_tasks) != len(tasks) and loop < max_loops:
+    while len(results) + len(failed_or_timedout_tasks) != len(tasks) and loop < max_loops:
         time.sleep(1)
         loop += 1
         try:
             with db.view():
                 for task in tasks:
-                    if task not in failed_tasks:
+                    if task not in failed_or_timedout_tasks:
                         status, _ = task.status
-                        if status == StatusEvent.FAILED:
-                            failed_tasks.add(task)
+                        if status in (StatusEvent.FAILED, StatusEvent.TIMEDOUT):
+                            failed_or_timedout_tasks.add(task)
                             continue
                         result = result_type.lookupUnique(task=task)
                         if result is not None:

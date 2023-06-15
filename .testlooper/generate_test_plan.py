@@ -41,7 +41,7 @@ suites:
             python .testlooper/collect_pytest_tests.py -m 'not docker'
         run-tests: |
             python .testlooper/run_pytest_tests.py -m 'not docker'
-        timeout:
+        timeout: 30
 
     pytest-docker:
         kind: unit
@@ -51,7 +51,7 @@ suites:
             python .testlooper/collect_pytest_tests.py -m 'docker'
         run-tests: |
             python .testlooper/run_pytest_tests.py  -m 'docker'
-        timeout:
+        timeout: 30
 
     matlab:
         kind: unit
@@ -61,7 +61,7 @@ suites:
             .testlooper/collect_matlab_tests.sh
         run-tests: |
             .testlooper/run_matlab_tests.sh
-        timeout:
+        timeout: 30
 """
 
 if __name__ == "__main__":

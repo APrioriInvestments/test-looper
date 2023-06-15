@@ -1,7 +1,7 @@
+import concurrent.futures
 import logging
 import os
 import tempfile
-import threading
 import subprocess
 import time
 import yaml
@@ -58,22 +58,20 @@ class LocalEngineAgent:
         """Run a task of the given type, using the given executor function."""
         with self.db.view():
             tasks = task_type.lookupAll()
-        for task in tasks:
-            with self.db.transaction():
-                if task.status[0] is StatusEvent.CREATED:
-                    task.started(self.clock.time())
-                    thread = threading.Thread(target=executor_func, args=(task,))
-                    thread.start()
-                    thread.join()
-                    self.threads[task] = thread
-
-                elif task.status[-1] in (
-                    StatusEvent.FAILED,
-                    StatusEvent.TIMEDOUT,
-                    StatusEvent.COMPLETED,
-                ):
-                    self.threads[task].join()
-                    self.threads.pop(task)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for task in tasks:
+                with self.db.transaction():
+                    if task.status[0] is StatusEvent.CREATED:
+                        task.started(self.clock.time())
+                        future = executor.submit(executor_func, task)
+                        try:
+                            if task.timeout_seconds is None:
+                                future.result()
+                            else:
+                                future.result(timeout=task.timeout_seconds)
+                        except concurrent.futures.TimeoutError:
+                            self.logger.error(f"Task {task} timed out")
+                            task.timeout(when=self.clock.time())
 
     def generate_test_plans(self):
         self.run_task(engine_schema.TestPlanGenerationTask, self.generate_test_plan)
@@ -273,4 +271,4 @@ class LocalEngineAgent:
         missing = ".".join(missing_values)
         error = f"Test Configuration for commit {task.commit.hash} missing '{missing}'"
         logging.error(error)
-        self._task_failed(task, error)
+        self._test_plan_task_failed(task, error)

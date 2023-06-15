@@ -51,14 +51,21 @@ class Status:
 
 @engine_schema.define
 class TaskBase:
+    timeout_seconds = OneOf(float, None)
     _status_history = TupleOf(StatusChange)
 
     @classmethod
     def create(cls, *args, when=None, **kwargs):
         if when is None:
             when = time.time()
-        c = cls(*args, **kwargs)
+        if "timeout_seconds" not in kwargs:
+            # otherwise timeout_seconds is set to 0.
+            timeout_seconds = None
+            c = cls(*args, timeout_seconds=timeout_seconds, **kwargs)
+        else:
+            c = cls(*args, **kwargs)
         c._add_status(StatusEvent.CREATED, when)
+
         return c
 
     def _add_status(self, status: StatusEvent, when: float):
@@ -135,7 +142,6 @@ class TestSuiteGenerationTask(TaskBase):
     # map of build name to build path, optional
     dependencies = OneOf(Dict(str, str), None)
     name = str
-    timeout = OneOf(int, None)  # seconds, optional
     list_tests_command = str
     run_tests_command = str
 
