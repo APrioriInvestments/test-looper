@@ -21,10 +21,10 @@ import os
 import sys
 import tempfile
 import time
-import uuid
 
 from numpy.random import default_rng
 from object_database import connect, core_schema, service_schema
+from object_database.database_connection import DatabaseConnection
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
 from object_database.util import genToken
@@ -32,21 +32,15 @@ from object_database.view import MultipleViewError
 from object_database.web.ActiveWebService import ActiveWebService
 from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
-from object_database.database_connection import DatabaseConnection
-from testlooper.engine.local_engine_service import LocalEngineService
+
 from testlooper.engine.git_watcher_service import GitWatcherService
+from testlooper.engine.local_engine_service import LocalEngineService
 from testlooper.schema.engine_schema import StatusEvent
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
-from testlooper.schema.test_schema import (
-    DesiredTesting,
-    StageResult,
-    TestFilter,
-    TestRunResult,
-)
+from testlooper.schema.test_schema import DesiredTesting, TestFilter
 from testlooper.service import TestlooperService
 from testlooper.utils import TL_SERVICE_NAME, setup_logger
-
 from testlooper.vcs import Git
 
 rng = default_rng()
@@ -140,7 +134,7 @@ def main(argv=None):
                 ServiceManager.startService("GitWatcherService", 1)
 
             # for now, need a Repo object so that the watcher knows how to link stuff,
-            # and an initial primary branch
+            # and an initial primary branch. This should really come out of a config file.
             with database.transaction():
                 repo_config = RepoConfig.Local(path=repo_path)
                 repo = repo_schema.Repo(name=REPO_NAME, config=repo_config)
@@ -217,33 +211,35 @@ def main(argv=None):
                     commit_test_definition.test_suites = suites_dict
 
             with database.transaction():
-                # Pretend to run all our tests (would be run via run_tests_command),
-                # ignoring suites, for all commits with a test definition
-                # For now we only run on the top commits of each branch (see 29k)
+                # generate TestRunTasks for all our suites and commits.
                 for commit_test_definition in test_schema.CommitTestDefinition.lookupAll():
                     commit = commit_test_definition.commit
-                    logger.info("Running tests for commit %s", commit.hash)
-                    for test in test_schema.Test.lookupAll():
-                        assert (
-                            test_schema.TestResults.lookupAny(test_and_commit=(test, commit))
-                            is None
-                        )
-                        test_results = test_schema.TestResults(
-                            test=test, commit=commit, runs_desired=1, results=[]
+                    suites = commit_test_definition.test_suites
+                    for suite in suites.values():
+                        # NB there are no TestResults yet.
+                        # TODO Should be created by the agent, probably.
+                        for test in suite.tests.values():
+                            assert (
+                                test_schema.TestResults.lookupAny(
+                                    test_and_commit=(test, commit)
+                                )
+                                is None
+                            )
+                            _ = test_schema.TestResults(
+                                test=test, commit=commit, runs_desired=1, results=[]
+                            )
+
+                        _ = engine_schema.TestRunTask.create(
+                            test_results=None,
+                            runs_desired=1,
+                            commit=commit,
+                            suite=suite,
+                            timeout_seconds=60,
                         )
 
-                        result = TestRunResult(
-                            uuid=str(uuid.uuid4()),
-                            outcome=rng.choice(
-                                ["passed", "failed", "skipped"], p=[0.5, 0.4, 0.1]
-                            ),
-                            duration_ms=(duration := rng.uniform(low=50, high=500)),
-                            start_time=time.time(),
-                            stages={"call": StageResult(duration=duration, outcome="passed")},
-                        )
-                        test_results.add_test_run_result(result)
                         logger.info(
-                            f"Adding test result '{result.outcome}' for test: {test.name}"
+                            f"Generated test run task for suite {suite.name}, "
+                            f"commit {commit.hash}"
                         )
 
             while True:

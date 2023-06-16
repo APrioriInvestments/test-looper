@@ -284,7 +284,7 @@ class TestSuite:
     name = Indexed(str)
     environment = test_schema.Environment
     tests = ConstDict(str, test_schema.Test)
-
+    run_tests_command = str
     _hash = OneOf(None, int)
 
     @property

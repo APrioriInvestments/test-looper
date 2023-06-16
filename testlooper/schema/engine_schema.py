@@ -151,17 +151,21 @@ class TestSuiteGenerationTask(TaskBase):
 @engine_schema.define
 class TestSuiteGenerationResult(ResultBase):
     commit = Indexed(repo_schema.Commit)
-    suite = OneOf(test_schema.TestSuite, None)
+    suite = OneOf(None, test_schema.TestSuite)
     task = Indexed(engine_schema.TestSuiteGenerationTask)
 
 
 @engine_schema.define
-class TestRunTask:
-    test_results = test_schema.TestResults
+class TestRunTask(TaskBase):
+    """either run a specific test on a specific commit, or all tests
+    for a suite on a specific commit."""
+
+    # this probably needs a Result to distinguish task failures from test failures.
+    test_results = OneOf(None, test_schema.TestResults)
     runs_desired = int
-    environment = Indexed(test_schema.Environment)
+    # environment = Indexed(test_schema.Environment)
     commit = Indexed(repo_schema.Commit)
-    status = Status
+    suite = Indexed(test_schema.TestSuite)
 
 
 @engine_schema.define

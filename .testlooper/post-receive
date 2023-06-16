@@ -60,8 +60,8 @@ def post_receive():
             'ref': ref_name,
             'before': old_revision,
             'after': new_revision,
-            'created': old_revision.strip() == '0000000000000000000000000000000000000000',
-            'deleted': new_revision.strip() == '0000000000000000000000000000000000000000',
+            'created': old_revision.strip() == '0'*40,
+            'deleted': new_revision.strip() == '0'*40,
             'repository': {
                 'name': repository,
                 'url': f'http://localhost:{GIT_WATCHER_PORT}/{repository}.git',  # this is fake

@@ -4,20 +4,21 @@ Runs pytest and generates a json report.
 
 Passes any arguments to pytest.
 """
-
+import os
 import subprocess
 import sys
-
 from typing import Optional
 
 
 def run_pytest_json_report(args) -> Optional[str]:
-    command = [
-        sys.executable,
-        "-m",
-        "pytest",
-        "--json-report",
-    ] + args
+    test_output = os.environ.get("TEST_OUTPUT")
+
+    command = [sys.executable, "-m", "pytest", "--json-report"]
+
+    if test_output:
+        command.extend(["--json-report-file", test_output])
+
+    command.extend(args)
     try:
         output = subprocess.check_output(command, text=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:

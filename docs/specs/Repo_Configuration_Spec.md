@@ -120,8 +120,9 @@ suites:
                 # (We could either pass a file with this list or pass the list explicitly on the
                 # command line to the runner-script.)
                 # REPO_ROOT - path to the current checked out repo, which will also be the CWD
-                # TEST_INPUTS - path to a text file with the names of the tests to run
-                # TEST_OUT - path to where we expect the output to go
+                # TEST_INPUT - path to a text file with the names of the tests to run.
+                    If not set, run all tests in the suite.
+                # TEST_OUTPUT - path to where we expect the output to go
                 #       flesh this out - how do we describe which tests we ran?
                 #       how do we describe where the logfiles for each test went
                 #       what other metadata can each test provide?

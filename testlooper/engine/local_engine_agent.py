@@ -1,19 +1,24 @@
 import concurrent.futures
 import docker
+import json
 import logging
 import os
 import tempfile
 import time
 import yaml
+import uuid
 
+from collections import defaultdict
+from dataclasses import dataclass
 from object_database.database_connection import DatabaseConnection
+from typing import Dict, List, Optional
+
 
 from testlooper.schema.engine_schema import StatusEvent
+from testlooper.schema.test_schema import StageResult, TestRunResult
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
-from testlooper.vcs import Git
 from testlooper.utils import setup_logger
-
-from typing import Dict
+from testlooper.vcs import Git
 
 # TODO
 # db and thread exception handling
@@ -24,6 +29,31 @@ from typing import Dict
 # more error propagation
 # more docs
 # less hardcoding
+
+
+@dataclass
+class Result:
+    nodeid: str
+    lineno: int
+    keywords: List
+    outcome: str
+    setup: Dict
+    call: Dict
+    teardown: Dict
+    metadata: Optional[Dict] = None
+
+
+@dataclass
+class TestRunOutput:
+    created: float
+    duration: float
+    exitcode: int
+    root: str
+    environment: Dict
+    summary: Dict  # number of outcomes per category, total number of tests
+    collectors: List
+    tests: List[Result]  # test nodes, with outcome and a set of test stages.
+    warnings: List
 
 
 class LocalEngineAgent:
@@ -58,7 +88,7 @@ class LocalEngineAgent:
         """Run a task of the given type, using the given executor function."""
         with self.db.view():
             tasks = task_type.lookupAll()
-        with concurrent.futures.ThreadPoolExecutor() as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
             for task in tasks:
                 with self.db.transaction():
                     if task.status[0] is StatusEvent.CREATED:
@@ -78,6 +108,182 @@ class LocalEngineAgent:
 
     def generate_test_suites(self):
         self.run_task(engine_schema.TestSuiteGenerationTask, self.generate_test_suite)
+
+    def run_tests(self):
+        """
+        There will be a set (perhaps a large set) of TestRunTasks.
+        Each one is a commit, a suite, and maybe a testresults.
+        Batch them up in order to reduce the number of checkouts/test runs, then run.
+        # NB this filter is going to get aggressive, over time.
+        #   I hope lookupAll returns a generator.
+        """
+        with self.db.transaction():
+            tasks = engine_schema.TestRunTask.lookupAll()
+            test_batches = defaultdict(lambda: defaultdict(list))
+            for task in tasks:
+                if task.status[0] is StatusEvent.CREATED:
+                    task.started(self.clock.time())  # debatable.
+                    test_batches[task.commit][task.suite].append(task)
+
+            max_timeouts = {
+                commit: max(
+                    task.timeout_seconds or 0
+                    for suite in suites_dict.values()
+                    for task in suite
+                )
+                for commit, suites_dict in test_batches.items()
+            }
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
+            for commit, suites_dict in test_batches.items():
+                timeout = max_timeouts[commit]
+                future = executor.submit(self.checkout_and_run, commit, suites_dict)
+                try:
+                    if not timeout:
+                        future.result()
+                    else:
+                        future.result(timeout=timeout)
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"provided test runner produced invalid json: {e}")
+                except Exception as e:
+                    self.logger.error(f"Task failed: {e}")
+
+    def checkout_and_run(self, commit, suites_dict):
+        """Checkout a commit, run all the suites in the suites dict.
+
+        All error handling is done by the caller.
+        NB: the TestRunTask is 'completed' even if the actual test fails - if the
+        test is properly run and the output successfully parsed, that's a success from the
+        Task's perspective.
+
+        Args:
+            commit: A commit object.
+            suites_dict: A dict from Suite to a list of Tasks.
+
+
+        Assumptions so far about the output of the test runner.
+
+        1. It's a json file stored at TEST_OUTPUT
+        2. It has the structure in TestRunOutput (this is too strict and will be relaxed
+            later).
+        """
+        with self.db.transaction():  # todo check how transaction works
+            self.logger.info(
+                f"checking out {commit.hash} and running {len(suites_dict)} suites"
+            )
+            mount_dir = "/repo"
+            test_output_path = "test_output.json"
+            test_input_path = "test_input.txt"
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # check out the necessary commit
+                self.source_control_store.create_worktree_and_reset_to_commit(
+                    commit.hash, tmpdir
+                )
+
+                # generate a list of test runs.
+                for suite, task_list in suites_dict.items():
+                    max_total_runs = max([task.runs_desired for task in task_list])
+                    tests_to_run = [
+                        {} for _ in range(max_total_runs)
+                    ]  # might need to be a dict.
+                    run_all_tests = [False for _ in range(max_total_runs)]
+                    for task in task_list:
+                        for i in range(task.runs_desired):
+                            if run_all_tests[i]:
+                                continue
+                            if task.test_results is None:
+                                run_all_tests[i] = True
+                            else:
+                                tests_to_run[i][task.test_results.test.name] = task
+
+                    env = os.environ.copy()
+                    env["REPO_ROOT"] = mount_dir
+                    env["TEST_OUTPUT"] = os.path.join(mount_dir, test_output_path)
+                    # test_list is tuples of (test_name, task)
+                    for run_all, test_name_and_task_list in zip(run_all_tests, tests_to_run):
+                        # now run the specified tests in the suite as many times as required.
+                        if run_all:
+                            # run the run_tests_command without args
+                            env["TEST_INPUT"] = ""
+                        else:
+                            test_input_path = os.path.join(mount_dir, test_input_path)
+                            with open(test_input_path, "w") as flines:
+                                flines.write(
+                                    "\n".join(
+                                        [name for name in test_name_and_task_list.keys()]
+                                    )
+                                )
+                            env["TEST_INPUT"] = test_input_path
+
+                        # the env now has a TEST_INPUT, a TEST_OUTPUT, and a REPO_ROOT,
+                        # and we have a bash command that recognises these things.
+                        command = suite.run_tests_command
+                        image_name = suite.environment.image.name
+                        client = docker.from_env()
+                        volumes = {tmpdir: {"bind": mount_dir, "mode": "rw"}}
+                        container = client.containers.run(
+                            image_name,
+                            # the below listbrackets turn out to be crucial for unknown reasons
+                            [command],
+                            volumes=volumes,
+                            environment=env,
+                            working_dir=mount_dir,
+                            remove=False,
+                            detach=True,
+                        )
+                        container.wait()
+                        # logs = container.logs().decode("utf-8")
+                        container.remove(force=True)
+
+                        with open(os.path.join(tmpdir, test_output_path), "r") as flines:
+                            test_results = json.load(flines)
+                        # validate the output
+                        import shutil
+
+                        shutil.copy(
+                            os.path.join(tmpdir, test_output_path), "/tmp/test_output.json"
+                        )
+
+                        parsed_test_results = TestRunOutput(**test_results)
+                        assert parsed_test_results.exitcode == 0
+                        number_of_tests_run = parsed_test_results.summary["total"]
+                        if run_all:
+                            assert number_of_tests_run == len(suite.tests)
+                        else:
+                            assert number_of_tests_run == len(test_name_and_task_list)
+                        # match the result to the task and testresults object.
+                        for result in parsed_test_results.tests:
+                            result = Result(**result)
+                            stages = {}
+                            total_duration = 0
+                            for stage_name in ["setup", "call", "teardown"]:
+                                stage = getattr(result, stage_name)
+                                stages[stage_name] = StageResult(
+                                    duration=stage["duration"], outcome=stage["outcome"]
+                                )
+                                total_duration += stage["duration"]
+
+                            test_name = result.nodeid.split("::")[-1]
+                            test_run_result = TestRunResult(
+                                uuid=str(uuid.uuid4()),
+                                outcome=result.outcome,
+                                duration_ms=total_duration,
+                                start_time=parsed_test_results.created,
+                                stages=stages,
+                            )
+
+                            results_obj = test_schema.TestResults.lookupUnique(
+                                test_and_commit=(suite.tests[test_name], commit)
+                            )
+                            if not results_obj:
+                                results_obj = test_schema.TestResults(
+                                    test=suite.tests[test_name], commit=commit, results=[]
+                                )
+
+                            results_obj.add_test_run_result(test_run_result)
+                    # ensure all tasks in the task list are marked completed.
+                    for task in task_list:
+                        task.completed(when=self.clock.time())
 
     def generate_test_plan(self, task):
         """Parse the task config, check out the repo, and run the specified command."""
@@ -118,7 +324,7 @@ class LocalEngineAgent:
         # Requires that docker has access to /tmp/
         # Binds the tmpdir to /repo/ in the container
         mount_dir = "/repo"
-        test_plan_file = "test_plan2.yaml"
+        test_plan_file = "test_plan.yaml"
         with tempfile.TemporaryDirectory() as tmpdir:
             # check out the necessary commit
             self.source_control_store.create_worktree_and_reset_to_commit(commit_hash, tmpdir)
@@ -135,7 +341,7 @@ class LocalEngineAgent:
             # initialise the docker client, bind the tmpdir to let docker access it, run.
             # this requires docker to have access to /tmp/
             client = docker.from_env()
-            volumes = {tmpdir: {"bind": "/repo", "mode": "rw"}}
+            volumes = {tmpdir: {"bind": mount_dir, "mode": "rw"}}
             container = client.containers.run(
                 image_name,
                 # the below listbrackets turn out to be crucial for unknown reasons
@@ -196,6 +402,7 @@ class LocalEngineAgent:
             env_variables = env.variables
             # dependencies = task.dependencies
             list_tests_command = task.list_tests_command
+            run_tests_command = task.run_tests_command
 
         if not self._start_task(task, status, self.clock.time()):
             return
@@ -212,7 +419,7 @@ class LocalEngineAgent:
                     env[key] = value
 
             client = docker.from_env()
-            volumes = {tmpdir: {"bind": "/repo", "mode": "rw"}}
+            volumes = {tmpdir: {"bind": mount_dir, "mode": "rw"}}
             container = client.containers.run(
                 env_image_name,
                 [list_tests_command],
@@ -241,6 +448,7 @@ class LocalEngineAgent:
                     name=task.name,
                     environment=task.environment,
                     tests=test_dict,
+                    run_tests_command=run_tests_command,
                 )  # TODO this needs a TestSuiteParent
                 self.logger.info(
                     f"Generated test suite {suite.name} with {len(test_dict)} tests."
