@@ -56,6 +56,7 @@ logger = setup_logger(__name__, level=logging.INFO)
 
 
 PATH_TO_CONFIG = ".testlooper/config.yaml"
+REPO_NAME = "test_repo"
 TOKEN = genToken()
 HTTP_PORT = 8001
 ODB_PORT = 8021
@@ -72,8 +73,6 @@ def main(argv=None):
 
     with tempfile.TemporaryDirectory() as tmp_dirname:
         server = None
-        repo_name = "test_repo"
-        repo_path = os.path.join(tmp_dirname, repo_name)
         try:
             server = startServiceManagerProcess(
                 tmp_dirname, ODB_PORT, TOKEN, loglevelName=LOGLEVEL_NAME, logDir=False
@@ -93,7 +92,6 @@ def main(argv=None):
                 service = ServiceManager.createOrUpdateService(
                     ActiveWebService, "ActiveWebService", target_count=0
                 )
-
             ActiveWebService.configureFromCommandline(
                 database,
                 service,
@@ -108,7 +106,6 @@ def main(argv=None):
                     LOGLEVEL_NAME,
                 ],
             )
-
             ActiveWebService.setLoginPlugin(
                 database,
                 service,
@@ -122,7 +119,6 @@ def main(argv=None):
                     GitWatcherService, "GitWatcherService", target_count=0
                 )
 
-            # config
             GitWatcherService.configure(
                 database, git_service, hostname="localhost", port=GIT_WATCHER_PORT
             )
@@ -134,6 +130,7 @@ def main(argv=None):
                     TestlooperService, TL_SERVICE_NAME, target_count=1
                 )
                 # local engine - will eventually do all the below work.
+                repo_path = os.path.join(tmp_dirname, REPO_NAME)
                 _ = engine_schema.LocalEngineConfig(path_to_git_repo=repo_path)
                 _ = ServiceManager.createOrUpdateService(
                     LocalEngineService, "LocalEngineService", target_count=1
@@ -146,7 +143,7 @@ def main(argv=None):
             # and an initial primary branch
             with database.transaction():
                 repo_config = RepoConfig.Local(path=repo_path)
-                repo = repo_schema.Repo(name=repo_name, config=repo_config)
+                repo = repo_schema.Repo(name=REPO_NAME, config=repo_config)
                 _ = repo_schema.TestConfig(config=TEST_CONFIG, repo=repo)
                 _ = repo_schema.Branch(repo=repo, name="master")
 
@@ -258,6 +255,17 @@ def main(argv=None):
                 server.wait()
 
 
+def add_to_dict(directory, input_dict):
+    """Walk a dir, adding all files to a dict."""
+    for filename in os.listdir(directory):
+        new_path = os.path.join(directory, filename)
+        if os.path.isfile(new_path):
+            with open(new_path) as file:
+                input_dict[new_path] = file.read()
+        elif os.path.isdir(new_path):
+            add_to_dict(new_path, input_dict)
+
+
 def generate_repo(
     path_to_root: str, path_to_config_dir=".testlooper", path_to_test_dir="tests"
 ) -> Git:
@@ -279,10 +287,7 @@ def generate_repo(
     repo.init()
 
     config_dir_contents = {}
-    for filename in os.listdir(path_to_config_dir):
-        new_path = os.path.join(path_to_config_dir, filename)
-        with open(os.path.abspath(new_path)) as flines:
-            config_dir_contents[new_path] = flines.read()
+    add_to_dict(path_to_config_dir, config_dir_contents)
 
     # check for a post-receive hook in the config dir. If it exists, stick it
     # in .git/hooks
