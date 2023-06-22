@@ -207,7 +207,7 @@ class CommitTestDefinition:
                         name=environment,
                         variables={},
                         image=Image.DockerImage(
-                            name="ubuntu:latest",
+                            name="testlooper:latest",
                             with_docker=True,
                         ),
                         min_ram_gb=0,

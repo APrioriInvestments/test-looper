@@ -331,7 +331,7 @@ def generate_repo(
     return repo
 
 
-def wait_for_result(db: DatabaseConnection, tasks, result_type, max_loops=10):
+def wait_for_result(db: DatabaseConnection, tasks, result_type, max_loops=20):
     """Repeatedly poll the db until all <tasks> have a result."""
     results = set()
     tasks = set(tasks)

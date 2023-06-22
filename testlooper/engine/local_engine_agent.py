@@ -3,7 +3,6 @@ import docker
 import logging
 import os
 import tempfile
-import subprocess
 import time
 import yaml
 
@@ -82,7 +81,6 @@ class LocalEngineAgent:
 
     def generate_test_plan(self, task):
         """Parse the task config, check out the repo, and run the specified command."""
-        now = self.clock.time()
 
         with self.db.view():
             status, timestamp = task.status
@@ -90,13 +88,8 @@ class LocalEngineAgent:
             commit_hash = commit.hash
             test_config_str = commit.test_config.config
 
-        if status is not StatusEvent.CREATED:
-            self._test_plan_task_failed(task, f"Unexpected Task status {status}")
+        if not self._start_task(task, status, self.clock.time()):
             return
-
-        else:
-            with self.db.transaction():
-                task.started(now)
 
         try:
             test_config = yaml.safe_load(test_config_str)
@@ -155,7 +148,8 @@ class LocalEngineAgent:
             )
             container.wait()
             logs = container.logs()
-            self.logger.info("container logs: %s", logs)
+            if logs:
+                self.logger.info("container logs: %s", logs)
             container.remove(force=True)
 
             with open(os.path.join(tmpdir, test_plan_file), "r") as fd:
@@ -191,43 +185,57 @@ class LocalEngineAgent:
 
     def generate_test_suite(self, task):
         """Generate some test suites."""
-        now = self.clock.time()
-
         with self.db.view():
             status, timestamp = task.status
             commit = task.commit
             commit_hash = task.commit.hash
-            # env = task.environment
+            env = task.environment
+            # env_name = env.name
+            env_image = env.image
+            env_image_name = env_image.name
+            env_variables = env.variables
             # dependencies = task.dependencies
-            # timeout = task.timeout
             list_tests_command = task.list_tests_command
-            # run_tests_command = task.run_tests_command
 
-        if status is not StatusEvent.CREATED:
-            self._test_suite_task_failed(task, f"Unexpected Task status {status}")
+        if not self._start_task(task, status, self.clock.time()):
             return
-
-        else:
-            with self.db.transaction():
-                task.started(now)
 
         output = None
         suite = None
+        mount_dir = "/repo"
         with tempfile.TemporaryDirectory() as tmpdir:
-            # TODO this should use a REPO_ROOT env variable, and be in docker
             self.source_control_store.create_worktree_and_reset_to_commit(commit_hash, tmpdir)
-            repo_root = tmpdir
-            try:
-                output = subprocess.check_output(
-                    list_tests_command, shell=True, cwd=repo_root, encoding="utf-8"
-                )
-            except Exception as e:
-                self._test_suite_task_failed(task, f"Failed to list tests: {str(e)}")
-                return
+            env = os.environ.copy()
+            env["REPO_ROOT"] = tmpdir
+            if env_variables is not None:
+                for key, value in env_variables.items():
+                    env[key] = value
+
+            client = docker.from_env()
+            volumes = {tmpdir: {"bind": "/repo", "mode": "rw"}}
+            container = client.containers.run(
+                env_image_name,
+                [list_tests_command],
+                environment=env,
+                working_dir=mount_dir,
+                volumes=volumes,
+                remove=False,
+                detach=True,
+            )
+            container.wait()
+            output = container.logs().decode("utf-8")
+            container.remove(force=True)
 
         if output is not None:
             # parse the output into Tests.
-            test_dict = self.parse_list_tests_yaml(output, perf_test=False)
+            try:
+                test_dict = self.parse_list_tests_yaml(output, perf_test=False)
+            except Exception:
+                self.logger.error("Failed to parse generated test-suite for task %s", task)
+                self._test_suite_task_failed(
+                    task, f"Failed to parse generated test-suite from: {output}"
+                )
+                return
             with self.db.transaction():
                 suite = test_schema.TestSuite(
                     name=task.name,
@@ -248,6 +256,19 @@ class LocalEngineAgent:
                 self.logger.exception("Failed to commit result to ODB.")
                 self._test_suite_task_failed(task, f"Failed to commit result to ODB: {str(e)}")
                 return
+
+    def _start_task(self, task, status, start_time) -> bool:
+        if status is not StatusEvent.CREATED:
+            if isinstance(task, engine_schema.TestPlanGenerationTask):
+                self._test_plan_task_failed(task, f"Unexpected Task status {status}")
+            elif isinstance(task, engine_schema.TestSuiteGenerationTask):
+                self._test_plan_task_failed(task, f"Unexpected Task status {status}")
+            return False
+
+        else:
+            with self.db.transaction():
+                task.started(start_time)
+        return True
 
     def parse_list_tests_yaml(
         self, list_tests_yaml: str, perf_test=False
