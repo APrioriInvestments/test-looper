@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "testlooper"
-version = "0.1.0"
+version = "1.0.0"
 description = "Testlooper is a tool for running test suites across commits and serving a UI for the results."
 readme = "README.md"
 authors = [
@@ -20,6 +20,7 @@ dependencies = [
     "object_database @ git+https://github.com/APrioriInvestments/object_database.git@b047bdc2a8dabc5d954599a441b3da23a83b50d9#egg=object_database=999.999.999",
     "PyYAML ~= 6.0",
     "click ~= 8.1",
+    "docker ~= 6.1"
 ]
 
 [project.optional-dependencies]

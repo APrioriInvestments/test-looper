@@ -12,7 +12,8 @@ environments:
     linux-pytest:
         image:
             docker:
-                dockerfile: .testlooper/environments/linux-pytest/Dockerfile
+                # dockerfile: .testlooper/environments/linux-pytest/Dockerfile
+                image: testlooper:latest
         variables:
             PYTHONPATH: ${REPO_ROOT}
             TP_COMPILER_CACHE: /tp_compiler_cache

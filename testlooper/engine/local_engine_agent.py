@@ -1,4 +1,5 @@
 import concurrent.futures
+import docker
 import logging
 import os
 import tempfile
@@ -114,22 +115,50 @@ class LocalEngineAgent:
             self._config_missing_data(task, ["image", "docker"])
             return
 
-        # Run test-plan generation
-        # TODO dockerize
+        if "image" not in test_config["image"]["docker"]:
+            self._test_plan_task_failed(
+                task, "No docker image specified (dockerfiles are not yet supported)"
+            )
+            return
+
+        # Run test-plan generation in a Docker container.
+        # Requires that docker has access to /tmp/
+        # Binds the tmpdir to /repo/ in the container
+        mount_dir = "/repo"
+        test_plan_file = "test_plan2.yaml"
         with tempfile.TemporaryDirectory() as tmpdir:
             # check out the necessary commit
             self.source_control_store.create_worktree_and_reset_to_commit(commit_hash, tmpdir)
-            test_plan_output = os.path.join(tmpdir, "test-plan.yaml")
+            test_plan_output = os.path.join(mount_dir, test_plan_file)
             command = test_config["command"]
+            image_name = test_config["image"]["docker"]["image"]
+            _ = test_config["image"]["docker"].get("with_docker", False)  # not currently used
             env = os.environ.copy()
             env["TEST_PLAN_OUTPUT"] = test_plan_output
             env["REPO_ROOT"] = tmpdir
             if "variables" in test_config:
                 for key, value in test_config["variables"].items():
                     env[key] = value
-            subprocess.run(command, shell=True, cwd=tmpdir, env=env)
+            # initialise the docker client, bind the tmpdir to let docker access it, run.
+            # this requires docker to have access to /tmp/
+            client = docker.from_env()
+            volumes = {tmpdir: {"bind": "/repo", "mode": "rw"}}
+            container = client.containers.run(
+                image_name,
+                # the below listbrackets turn out to be crucial for unknown reasons
+                [command],
+                volumes=volumes,
+                environment=env,
+                working_dir=mount_dir,
+                remove=False,
+                detach=True,
+            )
+            container.wait()
+            logs = container.logs()
+            self.logger.info("container logs: %s", logs)
+            container.remove(force=True)
 
-            with open(test_plan_output, "r") as fd:
+            with open(os.path.join(tmpdir, test_plan_file), "r") as fd:
                 test_plan_str = fd.read()
 
             # Check that the yaml is parseable.
@@ -263,7 +292,7 @@ class LocalEngineAgent:
                 task=task,
                 error=error,
                 commit=task.commit,
-                data="",
+                data=None,
             )
             task.failed(self.clock.time())
 

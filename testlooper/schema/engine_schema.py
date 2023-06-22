@@ -115,7 +115,9 @@ class TestPlanGenerationResult(ResultBase):
 
     # TODO (Will): resolve the overlap between this and CommitTestDefinition
     commit = Indexed(repo_schema.Commit)
-    data = test_schema.TestPlan  # YAML file of TestPlan
+    data = OneOf(
+        None, test_schema.TestPlan
+    )  # YAML file of TestPlan (None if result is a failure)
     task = Indexed(engine_schema.TestPlanGenerationTask)
 
 

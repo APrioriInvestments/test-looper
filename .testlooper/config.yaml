@@ -1,11 +1,12 @@
 version: 1.0
 image:
      docker:
-        dockerfile: .testlooper/environments/plan-generation/Dockerfile
-        with-docker: true
+        # dockerfile: .testlooper/environments/plan-generation/Dockerfile
+       image: testlooper:latest
+       with-docker: true
 
 variables:
     PYTHONPATH: ${REPO_ROOT}
 
 command:
-    python .testlooper/generate_test_plan.py  --out ${TEST_PLAN_OUTPUT}
+    python .testlooper/generate_test_plan.py  --output ${TEST_PLAN_OUTPUT}
