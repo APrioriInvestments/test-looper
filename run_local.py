@@ -22,13 +22,13 @@ import sys
 import tempfile
 import time
 
+from functools import partial
 from numpy.random import default_rng
-from object_database import connect, core_schema, service_schema
+from object_database import connect, core_schema, service_schema, Reactor
 from object_database.database_connection import DatabaseConnection
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
 from object_database.util import genToken
-from object_database.view import MultipleViewError
 from object_database.web.ActiveWebService import ActiveWebService
 from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
@@ -158,13 +158,13 @@ def main(argv=None):
                 else:
                     raise ValueError("No primary branch found")
 
-            with database.transaction():
-                tasks = engine_schema.TestPlanGenerationTask.lookupAll()
-
-            # TODO make a Reactor to block until the test_plan is generated instead of polling.
-            plan_results = wait_for_result(
-                database, tasks, engine_schema.TestPlanGenerationResult
+            plan_task_blocker = Reactor(
+                database,
+                partial(
+                    reactor_wait_for_tasks, database, engine_schema.TestPlanGenerationTask
+                ),
             )
+            plan_task_blocker.blockUntilTrue()
 
             # set desired testing for all our branches
             with database.transaction():
@@ -183,6 +183,12 @@ def main(argv=None):
                     )
                     logger.info("Generated desired testing for branch %s", branch.name)
                 # TODO generate CommitDesiredTestings
+
+                plan_results = []
+                for result in engine_schema.TestPlanGenerationResult.lookupAll():
+                    if result.task.status[0] == StatusEvent.COMPLETED:
+                        plan_results.append(result)
+
                 for plan_result in plan_results:
                     commit = plan_result.commit
                     commit_test_definition = test_schema.CommitTestDefinition(commit=commit)
@@ -191,15 +197,20 @@ def main(argv=None):
                         plan_result.data
                     )  # here is where the suite generation tasks are created
 
-            # wait for suites, then assign test results
-            with database.transaction():
-                tasks = engine_schema.TestSuiteGenerationTask.lookupAll()
-
-            suite_results = wait_for_result(
-                database, tasks, engine_schema.TestSuiteGenerationResult
+            suite_task_blocker = Reactor(
+                database,
+                partial(
+                    reactor_wait_for_tasks, database, engine_schema.TestSuiteGenerationTask
+                ),
             )
+            suite_task_blocker.blockUntilTrue()
+
             # add the suites to the commit test definition once finished.
             with database.transaction():
+                suite_results = []
+                for result in engine_schema.TestSuiteGenerationResult.lookupAll():
+                    if result.task.status[0] == StatusEvent.COMPLETED:
+                        suite_results.append(result)
                 for result in suite_results:
                     commit_test_definition = test_schema.CommitTestDefinition.lookupUnique(
                         commit=result.commit
@@ -327,35 +338,23 @@ def generate_repo(
     return repo
 
 
-def wait_for_result(db: DatabaseConnection, tasks, result_type, max_loops=20):
-    """Repeatedly poll the db until all <tasks> have a result."""
-    results = set()
-    tasks = set(tasks)
-    failed_or_timedout_tasks = set()
-    loop = 0
-    while len(results) + len(failed_or_timedout_tasks) != len(tasks) and loop < max_loops:
-        time.sleep(1)
-        loop += 1
-        try:
-            with db.view():
-                for task in tasks:
-                    if task not in failed_or_timedout_tasks:
-                        status, _ = task.status
-                        if status in (StatusEvent.FAILED, StatusEvent.TIMEDOUT):
-                            failed_or_timedout_tasks.add(task)
-                            continue
-                        result = result_type.lookupUnique(task=task)
-                        if result is not None:
-                            results.add(result)
-
-        except MultipleViewError:
-            logger.error("multiple view error")
-            continue
-
-    if loop == max_loops:
-        raise ValueError(f"found {len(results)} results for {len(tasks)} tasks")
-
-    return list(results)
+def reactor_wait_for_tasks(database: DatabaseConnection, task_type):
+    failed_tasks = set()
+    while True:
+        # runs until all tasks of the given type are completed
+        with database.transaction():
+            tasks = task_type.lookupAll()
+            for task in tasks:
+                if task not in failed_tasks and task.status not in (
+                    StatusEvent.COMPLETED,
+                    StatusEvent.FAILED,
+                    StatusEvent.TIMEDOUT,
+                ):
+                    failed_tasks.add(task)
+                    break
+            else:
+                return True
+            time.sleep(1)
 
 
 if __name__ == "__main__":
