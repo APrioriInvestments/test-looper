@@ -194,7 +194,12 @@ class LocalEngineAgent:
                             if task.test_results is None:
                                 run_all_tests[i] = True
                             else:
-                                tests_to_run[i][task.test_results.test.name] = task
+                                node_id = (
+                                    task.test_results.test.path
+                                    + "::"
+                                    + task.test_results.test.name
+                                )
+                                tests_to_run[i][node_id] = task
 
                     env = os.environ.copy()
                     env["REPO_ROOT"] = mount_dir
