@@ -21,6 +21,7 @@ import os
 import sys
 import tempfile
 import time
+import yaml
 
 from functools import partial
 from numpy.random import default_rng
@@ -44,35 +45,41 @@ from testlooper.utils import TL_SERVICE_NAME, setup_logger
 from testlooper.vcs import Git
 
 rng = default_rng()
-
-# setupLogging()
 logger = setup_logger(__name__, level=logging.INFO)
 
 
 PATH_TO_CONFIG = ".testlooper/config.yaml"
-REPO_NAME = "test_repo"
 TOKEN = genToken()
 HTTP_PORT = 8001
 ODB_PORT = 8021
 LOGLEVEL_NAME = "ERROR"
 GIT_WATCHER_PORT = 9999
 
-with open(PATH_TO_CONFIG, "r") as flines:
-    TEST_CONFIG = flines.read()
 
+def main(
+    path_to_config=PATH_TO_CONFIG,
+    token=TOKEN,
+    http_port=HTTP_PORT,
+    internal_port=HTTP_PORT + 1,
+    odb_port=ODB_PORT,
+    log_level=LOGLEVEL_NAME,
+    git_watcher_port=GIT_WATCHER_PORT,
+):
+    with open(path_to_config, "r") as flines:
+        test_config = flines.read()
 
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv
+    parsed_test_config = yaml.safe_load(test_config)
+    repo_name = parsed_test_config["name"]
 
     with tempfile.TemporaryDirectory() as tmp_dirname:
         server = None
         try:
+            # spin up the required TL services
             server = startServiceManagerProcess(
-                tmp_dirname, ODB_PORT, TOKEN, loglevelName=LOGLEVEL_NAME, logDir=False
+                tmp_dirname, odb_port, token, loglevelName=log_level, logDir=False
             )
 
-            database = connect("localhost", ODB_PORT, TOKEN, retry=True)
+            database = connect("localhost", odb_port, token, retry=True)
             database.subscribeToSchema(
                 core_schema,
                 service_schema,
@@ -91,13 +98,13 @@ def main(argv=None):
                 service,
                 [
                     "--port",
-                    str(HTTP_PORT),
+                    str(http_port),
                     "--internal-port",
-                    str(HTTP_PORT + 1),
+                    str(internal_port),
                     "--host",
                     "0.0.0.0",
                     "--log-level",
-                    LOGLEVEL_NAME,
+                    log_level,
                 ],
             )
             ActiveWebService.setLoginPlugin(
@@ -114,7 +121,7 @@ def main(argv=None):
                 )
 
             GitWatcherService.configure(
-                database, git_service, hostname="localhost", port=GIT_WATCHER_PORT
+                database, git_service, hostname="localhost", port=git_watcher_port
             )
 
             with database.transaction():
@@ -124,7 +131,7 @@ def main(argv=None):
                     TestlooperService, TL_SERVICE_NAME, target_count=1
                 )
                 # local engine - will eventually do all the below work.
-                repo_path = os.path.join(tmp_dirname, REPO_NAME)
+                repo_path = os.path.join(tmp_dirname, repo_name)
                 _ = engine_schema.LocalEngineConfig(path_to_git_repo=repo_path)
                 _ = ServiceManager.createOrUpdateService(
                     LocalEngineService, "LocalEngineService", target_count=1
@@ -133,30 +140,17 @@ def main(argv=None):
                 # updates ODB accordingly
                 ServiceManager.startService("GitWatcherService", 1)
 
-            # for now, need a Repo object so that the watcher knows how to link stuff,
-            # and an initial primary branch. This should really come out of a config file.
+            # initialise the Repo object.
+            primary_branch_name = parsed_test_config["primary-branch"]
             with database.transaction():
                 repo_config = RepoConfig.Local(path=repo_path)
-                repo = repo_schema.Repo(name=REPO_NAME, config=repo_config)
-                _ = repo_schema.TestConfig(config=TEST_CONFIG, repo=repo)
-                _ = repo_schema.Branch(repo=repo, name="master")
+                repo = repo_schema.Repo(name=repo_name, config=repo_config)
+                _ = repo_schema.TestConfig(config=test_config, repo=repo)
+                branch = repo_schema.Branch(repo=repo, name=primary_branch_name)
+                repo.primary_branch = branch
 
-            # first, make a Git object for our DB, generate a repo with branches and commits.
-            # then run a script to populate the db with schema objects.
+            # generate a Git object, then run git commands to generate test repo
             _ = generate_repo(path_to_root=repo_path)
-
-            # TODO get the primary branch from a config file
-            with database.transaction():
-                if (
-                    branch := repo_schema.Branch.lookupUnique(repo_and_name=(repo, "master"))
-                ) is not None:
-                    repo.primary_branch = branch
-                elif (
-                    branch := repo_schema.Branch.lookupUnique(repo_and_name=(repo, "main"))
-                ) is not None:
-                    repo.primary_branch = branch
-                else:
-                    raise ValueError("No primary branch found")
 
             plan_task_blocker = Reactor(
                 database,
@@ -166,7 +160,7 @@ def main(argv=None):
             )
             plan_task_blocker.blockUntilTrue()
 
-            # set desired testing for all our branches
+            # # temp: set desired testing = 1 for all our branches (TODO do the commits too)
             with database.transaction():
                 branches = repo_schema.Branch.lookupAll(repo=repo)
                 for branch in branches:
@@ -182,20 +176,6 @@ def main(argv=None):
                         )
                     )
                     logger.info("Generated desired testing for branch %s", branch.name)
-                # TODO generate CommitDesiredTestings
-
-                plan_results = []
-                for result in engine_schema.TestPlanGenerationResult.lookupAll():
-                    if result.task.status[0] == StatusEvent.COMPLETED:
-                        plan_results.append(result)
-
-                for plan_result in plan_results:
-                    commit = plan_result.commit
-                    commit_test_definition = test_schema.CommitTestDefinition(commit=commit)
-                    logger.info("Generated commit test definition for commit %s", commit.hash)
-                    commit_test_definition.set_test_plan(
-                        plan_result.data
-                    )  # here is where the suite generation tasks are created
 
             suite_task_blocker = Reactor(
                 database,
@@ -204,22 +184,6 @@ def main(argv=None):
                 ),
             )
             suite_task_blocker.blockUntilTrue()
-
-            # add the suites to the commit test definition once finished.
-            with database.transaction():
-                suite_results = []
-                for result in engine_schema.TestSuiteGenerationResult.lookupAll():
-                    if result.task.status[0] == StatusEvent.COMPLETED:
-                        suite_results.append(result)
-                for result in suite_results:
-                    commit_test_definition = test_schema.CommitTestDefinition.lookupUnique(
-                        commit=result.commit
-                    )
-                    suites_dict = commit_test_definition.test_suites
-                    if suites_dict is None:
-                        suites_dict = {}
-                    suites_dict[result.suite.name] = result.suite
-                    commit_test_definition.test_suites = suites_dict
 
             with database.transaction():
                 # generate TestRunTasks for all our suites and commits.

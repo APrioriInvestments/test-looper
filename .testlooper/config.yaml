@@ -1,4 +1,6 @@
 version: 1.0
+name: testlooper
+primary-branch: master
 image:
      docker:
         # dockerfile: .testlooper/environments/plan-generation/Dockerfile

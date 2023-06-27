@@ -109,6 +109,43 @@ class LocalEngineAgent:
     def generate_test_suites(self):
         self.run_task(engine_schema.TestSuiteGenerationTask, self.generate_test_suite)
 
+    def generate_commit_test_definitions(self):
+        self.run_task(
+            engine_schema.CommitTestDefinitionGenerationTask,
+            self.generate_commit_test_definition,
+        )
+
+    def generate_commit_test_definition(self, task):
+        """
+        Triggered when a test plan object is successfully generated for a Commit.
+        Creates a CommitTestDefinition and runs set_test_plan.
+        TODO does this need a Result?
+        """
+        with self.db.view():
+            status, timestamp = task.status
+            commit = task.commit
+            test_plan = task.test_plan
+
+        if not self._start_task(task, status, self.clock.time()):
+            return
+
+        if test_plan is None:
+            self.logger.error(f"Task {task} has no test plan data")
+            # TODO fail task.
+            return
+
+        with self.db.transaction():
+            if not test_schema.CommitTestDefinition.lookupUnique(commit=commit):
+                commit_definition = test_schema.CommitTestDefinition(commit=commit)
+                self.logger.info(f"Created CommitTestDefinition for commit {commit.hash}")
+                commit_definition.set_test_plan(test_plan)
+                task.completed(self.clock.time())
+            else:
+                self.logger.error(
+                    f"CommitTestDefinition already exists for commit {commit.hash}"
+                )
+                # TODO fail task
+
     def run_tests(self):
         """
         There will be a set (perhaps a large set) of TestRunTasks.
@@ -387,6 +424,9 @@ class LocalEngineAgent:
                         data=plan,
                         commit=commit,
                     )
+                    _ = engine_schema.CommitTestDefinitionGenerationTask.create(
+                        commit=commit, test_plan=plan
+                    )
                 except Exception as e:
                     self.logger.exception("Failed to commit result to ODB.")
                     self._test_plan_task_failed(
@@ -465,6 +505,13 @@ class LocalEngineAgent:
                 _ = engine_schema.TestSuiteGenerationResult(
                     task=task, error="", commit=commit, suite=suite
                 )
+                # add the test suite to the commit test definition: could be a separate service
+                ctd = test_schema.CommitTestDefinition.lookupUnique(commit=commit)
+                # have to do the copy dance so that ODB notices the change.
+                suites = dict(ctd.test_suites) if ctd.test_suites else {}
+                suites[suite.name] = suite
+                ctd.test_suites = suites
+
             except Exception as e:
                 self.logger.exception("Failed to commit result to ODB.")
                 self._test_suite_task_failed(task, f"Failed to commit result to ODB: {str(e)}")

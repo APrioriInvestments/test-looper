@@ -162,7 +162,9 @@ class CommitTestDefinition:
     commit = Indexed(repo_schema.Commit)
 
     test_plan = OneOf(None, test_schema.TestPlan)  # None when pending generation
-    test_suites = Dict(str, OneOf(None, test_schema.TestSuite))  # None when pending generation
+    test_suites = ConstDict(
+        str, OneOf(None, test_schema.TestSuite)
+    )  # None when pending generation
 
     def set_test_plan(self, test_plan):
         """parse the YAML file produced by generated-test-plan

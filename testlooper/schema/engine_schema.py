@@ -169,6 +169,12 @@ class TestRunTask(TaskBase):
 
 
 @engine_schema.define
+class CommitTestDefinitionGenerationTask(TaskBase):
+    commit = Indexed(repo_schema.Commit)
+    test_plan = test_schema.TestPlan
+
+
+@engine_schema.define
 class LocalEngineConfig:
     path_to_git_repo = str
 

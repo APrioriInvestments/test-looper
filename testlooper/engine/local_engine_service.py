@@ -38,6 +38,7 @@ class LocalEngineService(ServiceBase):
         self.registerReactor(Reactor(self.db, self.agent.generate_test_plans))
         self.registerReactor(Reactor(self.db, self.agent.generate_test_suites))
         self.registerReactor(Reactor(self.db, self.agent.run_tests))
+        self.registerReactor(Reactor(self.db, self.agent.generate_commit_test_definitions))
 
     # todo - a serviceDisplay method showing what the engine is up to,
     # whether the reactor is running, etc
