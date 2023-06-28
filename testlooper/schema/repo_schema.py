@@ -303,13 +303,22 @@ class Commit:
             elif field == "Test Name":
                 return test.name
             elif field == "Status":
-                return "FAILED" if result.runs_failed else "PASSED"
+                if not result.runs_pending:
+                    return "FAILED" if result.runs_failed else "PASSED"
+                else:
+                    return "PENDING"
             elif field == "Failure Rate":
                 return round(result.fail_rate(), 2)
             elif field == "Failure Count":
                 return result.runs_failed
+            elif field == "Runs Completed":
+                return result.runs_completed
             elif field == "Duration":
-                return str(round(result.results[-1].duration_ms, 2)) + " ms"
+                return (
+                    str(round(result.results[-1].duration_ms, 2)) + " ms"
+                    if result.results
+                    else "N/A"
+                )
             elif field == "Currently Running":
                 return "True" if result.runs_pending else "False"
 
@@ -321,6 +330,7 @@ class Commit:
                 "Status",
                 "Failure Rate",
                 "Failure Count",
+                "Runs Completed",
                 "Duration",
                 "Currently Running",
             ],

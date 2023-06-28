@@ -372,7 +372,9 @@ class Test:
             if col == "Status":
                 return "FAILED" if row.runs_failed else "PASSED"
             elif col == "Duration":
-                return str(round(row.results[-1].duration_ms, 2)) + " ms"
+                return (
+                    str(round(row.results[-1].duration_ms, 2)) + " ms" if row.results else ""
+                )
             elif col == "Commit":
                 return row.commit.hash
 
@@ -511,7 +513,7 @@ class TestResults:
             return 0.0
 
     def add_test_run_result(self, result):
-        self.results.append(result)
+        self.results += [result]  # append doesn't work here for ODB reasons
         self.runs_completed += 1
 
         outcome = result.outcome

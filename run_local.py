@@ -23,10 +23,8 @@ import tempfile
 import time
 import yaml
 
-from functools import partial
 from numpy.random import default_rng
-from object_database import connect, core_schema, service_schema, Reactor
-from object_database.database_connection import DatabaseConnection
+from object_database import connect, core_schema, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
 from object_database.util import genToken
@@ -36,7 +34,6 @@ from object_database.web.LoginPlugin import LoginIpPlugin
 
 from testlooper.engine.git_watcher_service import GitWatcherService
 from testlooper.engine.local_engine_service import LocalEngineService
-from testlooper.schema.engine_schema import StatusEvent
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.service import TestlooperService
@@ -151,60 +148,6 @@ def main(
             # generate a Git object, then run git commands to generate test repo
             _ = generate_repo(path_to_root=repo_path)
 
-            plan_task_blocker = Reactor(
-                database,
-                partial(
-                    reactor_wait_for_tasks, database, engine_schema.TestPlanGenerationTask
-                ),
-            )
-            plan_task_blocker.blockUntilTrue()
-
-            suite_task_blocker = Reactor(
-                database,
-                partial(
-                    reactor_wait_for_tasks, database, engine_schema.TestSuiteGenerationTask
-                ),
-            )
-            suite_task_blocker.blockUntilTrue()
-
-            with database.view():
-                # temp - check that the commit desired testings have come in properly
-                commits = repo_schema.Commit.lookupAll()
-                for commit in commits:
-                    assert test_schema.CommitDesiredTesting.lookupUnique(commit=commit)
-
-            with database.transaction():
-                # generate TestRunTasks for all our suites and commits.
-                for commit_test_definition in test_schema.CommitTestDefinition.lookupAll():
-                    commit = commit_test_definition.commit
-                    suites = commit_test_definition.test_suites
-                    for suite in suites.values():
-                        # NB there are no TestResults yet.
-                        # TODO Should be created by the agent, probably.
-                        for test in suite.tests.values():
-                            assert (
-                                test_schema.TestResults.lookupAny(
-                                    test_and_commit=(test, commit)
-                                )
-                                is None
-                            )
-                            _ = test_schema.TestResults(
-                                test=test, commit=commit, runs_desired=1, results=[]
-                            )
-
-                        _ = engine_schema.TestRunTask.create(
-                            test_results=None,
-                            runs_desired=1,
-                            commit=commit,
-                            suite=suite,
-                            timeout_seconds=60,
-                        )
-
-                        logger.info(
-                            f"Generated test run task for suite {suite.name}, "
-                            f"commit {commit.hash}"
-                        )
-
             while True:
                 time.sleep(0.1)
 
@@ -288,25 +231,6 @@ def generate_repo(
     assert dep_repo.push_commit(f, branch="feature", force=False, create_branch=True)
 
     return repo
-
-
-def reactor_wait_for_tasks(database: DatabaseConnection, task_type):
-    failed_tasks = set()
-    while True:
-        # runs until all tasks of the given type are completed
-        with database.transaction():
-            tasks = task_type.lookupAll()
-            for task in tasks:
-                if task not in failed_tasks and task.status not in (
-                    StatusEvent.COMPLETED,
-                    StatusEvent.FAILED,
-                    StatusEvent.TIMEDOUT,
-                ):
-                    failed_tasks.add(task)
-                    break
-            else:
-                return True
-            time.sleep(1)
 
 
 if __name__ == "__main__":

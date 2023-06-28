@@ -3,6 +3,7 @@ import docker
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 import yaml
@@ -11,11 +12,11 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from object_database.database_connection import DatabaseConnection
-from typing import Dict, List, Optional
+from typing import Dict, List, Set, Optional
 
 
 from testlooper.schema.engine_schema import StatusEvent
-from testlooper.schema.test_schema import StageResult, TestRunResult
+from testlooper.schema.test_schema import StageResult, TestRunResult, TestFilter
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.utils import setup_logger
 from testlooper.vcs import Git
@@ -29,6 +30,8 @@ from testlooper.vcs import Git
 # more error propagation
 # more docs
 # less hardcoding
+
+MAX_WORKERS = 12
 
 
 @dataclass
@@ -88,7 +91,7 @@ class LocalEngineAgent:
         """Run a task of the given type, using the given executor function."""
         with self.db.view():
             tasks = task_type.lookupAll()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             for task in tasks:
                 with self.db.transaction():
                     if task.status[0] is StatusEvent.CREATED:
@@ -146,6 +149,152 @@ class LocalEngineAgent:
                 )
                 # TODO fail task
 
+    def generate_test_run_tasks(self):
+        """Looks for new or update CommitDesiredTestings, and works out what TestRunTasks
+        to create.
+
+
+        Applies the DesiredTesting filter to the commit and works out the tests (this is also
+        useful in the UI to show users what tests are about to run).
+
+        Also generates TestResults for all touched tests."""
+        with self.db.view():
+            # wait for a commit test defintion, both are needed
+            cdts = [cdt for cdt in test_schema.CommitDesiredTesting.lookupAll()]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            for cdt in cdts:
+                with self.db.view():
+                    # we only want to run this once all test suite tasks have completed
+                    commit_test_definition = test_schema.CommitTestDefinition.lookupUnique(
+                        commit=cdt.commit
+                    )
+                    if commit_test_definition is not None:
+                        tasks = engine_schema.TestSuiteGenerationTask.lookupAll(
+                            commit=cdt.commit
+                        )
+                        if all(
+                            task.status[0]
+                            in (
+                                StatusEvent.COMPLETED,
+                                StatusEvent.FAILED,
+                                StatusEvent.TIMEDOUT,
+                            )
+                            for task in tasks
+                        ):
+                            future = executor.submit(
+                                self.parse_cdt_filter_and_run, cdt, commit_test_definition
+                            )
+                            try:
+                                future.result()
+                            except Exception as e:
+                                self.logger.error(f"Error generating test run tasks: {e}")
+
+    def parse_cdt_filter_and_run(
+        self,
+        cdt: test_schema.CommitDesiredTesting,
+        commit_test_definition: test_schema.CommitTestDefinition,
+    ) -> None:
+        """Look at the TestFilter in the CommitDesiredTesting and work out what Tests are
+        affected. From there, look at the TestResults and the runs_desired in the
+        CommitDesiredTesting, thus what TestRunTasks need to be created and which
+        TestResults runs_desired need bumping.
+        """
+        with self.db.transaction():
+            commit = cdt.commit
+            desired_testing = cdt.desired_testing
+
+            # work out what tests are affected.
+            desired_testing_filter = desired_testing.filter
+            if commit_test_definition is None:
+                self.logger.error("No CommitTestDefinition for commit {commit.hash} yet")
+                return
+            suites = commit_test_definition.test_suites.values()
+            test_name_to_suite = {}
+            all_tests = set()
+            for suite in suites:
+                for test in suite.tests.values():
+                    test_name_to_suite[test.name] = suite
+                    all_tests.add(test)
+            tests_to_run = self.parse_filter(
+                desired_testing_filter, all_tests, test_name_to_suite
+            )
+
+            if not tests_to_run:
+                return
+
+            # look at the TestResults for these tests. Decide which ones need extra runs and
+            # thus TestRunTasks.
+            for test in tests_to_run:
+                test_result = test_schema.TestResults.lookupUnique(
+                    test_and_commit=(test, commit)
+                )
+                if test_result is None:
+                    test_result = test_schema.TestResults(test=test, commit=commit)
+                diff = desired_testing.runs_desired - test_result.runs_desired
+                if diff > 0:
+                    test_result.runs_desired = desired_testing.runs_desired
+                    _ = engine_schema.TestRunTask.create(
+                        test_results=test_result,
+                        runs_desired=diff,
+                        commit=commit,
+                        suite=test_name_to_suite[test.name],
+                    )
+                    self.logger.info(
+                        f"Created TestRunTask for test {test.name} on commit {commit.hash}"
+                    )
+                    # TODO assign a timeout
+
+    def parse_filter(
+        self,
+        test_filter: TestFilter,
+        all_tests: Set[test_schema.Test],
+        test_name_to_suite: Dict[str, test_schema.TestSuite],
+    ) -> Set[test_schema.Test]:
+        """Filter is on labels, paths, suites, and regex on name."""
+        filtered_tests = set()
+        # Filter by labels
+        if test_filter.labels == "Any" or test_filter.labels is None:
+            filtered_tests = all_tests
+        else:
+            for test in all_tests:
+                for label in test_filter.labels:
+                    if test.label.startswith(label):
+                        filtered_tests.add(test)
+
+        # Filter by path prefixes
+        path_set = set()
+        if test_filter.path_prefixes is not None and test_filter.path_prefixes != "Any":
+            for test in filtered_tests:
+                for path_prefix in test_filter.path_prefixes:
+                    if test.path.startswith(path_prefix):
+                        path_set.add(test)
+            filtered_tests &= path_set
+
+        # Filter by suites
+        suite_set = set()
+        if test_filter.suites is not None and test_filter.suites != "Any":
+            for test in filtered_tests:
+                for suite_name in test_filter.suites:
+                    if test_name_to_suite[test.name].name == suite_name:
+                        # wrong -test doesn't have a suite. need to pass in test -> suite name
+                        suite_set.add(test)
+            filtered_tests &= suite_set
+
+        # Filter by regex
+        regex_set = set()
+        if test_filter.regex is not None:
+            for test in filtered_tests:
+                if re.match(test_filter.regex, test.name):
+                    regex_set.add(test)
+
+            filtered_tests &= regex_set
+
+        if not filtered_tests:
+            self.logger.error(f"Filter {test_filter} matched no tests")
+
+        return filtered_tests
+
     def run_tests(self):
         """
         There will be a set (perhaps a large set) of TestRunTasks.
@@ -171,7 +320,7 @@ class LocalEngineAgent:
                 for commit, suites_dict in test_batches.items()
             }
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             for commit, suites_dict in test_batches.items():
                 timeout = max_timeouts[commit]
                 future = executor.submit(self.checkout_and_run, commit, suites_dict)
@@ -203,8 +352,14 @@ class LocalEngineAgent:
         1. It's a json file stored at TEST_OUTPUT
         2. It has the structure in TestRunOutput (this is too strict and will be relaxed
             later).
+
+
+        TODO if we catch a failure, then we should mark the tasks as failed.
+        TODO this code is horrible horrible
         """
-        with self.db.transaction():  # todo check how transaction works
+        # NB with such a large transaction, an unexpected error will throw all in-flight runs
+        # away.
+        with self.db.transaction():
             self.logger.info(
                 f"checking out {commit.hash} and running {len(suites_dict)} suites"
             )
@@ -219,113 +374,135 @@ class LocalEngineAgent:
 
                 # generate a list of test runs.
                 for suite, task_list in suites_dict.items():
-                    max_total_runs = max([task.runs_desired for task in task_list])
-                    tests_to_run = [
-                        {} for _ in range(max_total_runs)
-                    ]  # might need to be a dict.
-                    run_all_tests = [False for _ in range(max_total_runs)]
-                    for task in task_list:
-                        for i in range(task.runs_desired):
-                            if run_all_tests[i]:
-                                continue
-                            if task.test_results is None:
-                                run_all_tests[i] = True
-                            else:
-                                node_id = (
-                                    task.test_results.test.path
-                                    + "::"
-                                    + task.test_results.test.name
-                                )
-                                tests_to_run[i][node_id] = task
+                    try:
+                        with tempfile.TemporaryDirectory() as tmpdir2:
+                            max_total_runs = max([task.runs_desired for task in task_list])
+                            tests_to_run = [{} for _ in range(max_total_runs)]
+                            run_all_tests = [False for _ in range(max_total_runs)]
+                            for task in task_list:
+                                for i in range(task.runs_desired):
+                                    if run_all_tests[i]:
+                                        continue
+                                    if task.test_results is None:
+                                        run_all_tests[i] = True
+                                    else:
+                                        node_id = (
+                                            task.test_results.test.path
+                                            + "::"
+                                            + task.test_results.test.name
+                                        )
+                                        tests_to_run[i][node_id] = task
 
-                    env = os.environ.copy()
-                    env["REPO_ROOT"] = mount_dir
-                    env["TEST_OUTPUT"] = os.path.join(mount_dir, test_output_path)
-                    # test_list is tuples of (test_name, task)
-                    for run_all, test_name_and_task_list in zip(run_all_tests, tests_to_run):
-                        # now run the specified tests in the suite as many times as required.
-                        if run_all:
-                            # run the run_tests_command without args
-                            env["TEST_INPUT"] = ""
-                        else:
-                            test_input_path = os.path.join(mount_dir, test_input_path)
-                            with open(test_input_path, "w") as flines:
-                                flines.write(
-                                    "\n".join(
-                                        [name for name in test_name_and_task_list.keys()]
+                            env = os.environ.copy()
+                            env["REPO_ROOT"] = mount_dir
+                            env["TEST_OUTPUT"] = os.path.join("/tmp", test_output_path)
+                            # test_list is tuples of (test_name, task)
+                            for run_all, test_name_and_task_list in zip(
+                                run_all_tests, tests_to_run
+                            ):
+                                # now run the specified tests in the suite as many times
+                                # as required.
+                                if run_all:
+                                    # run the run_tests_command without args
+                                    env["TEST_INPUT"] = ""
+                                else:
+                                    repo_test_input_path = os.path.join(
+                                        tmpdir2, test_input_path
                                     )
+                                    with open(repo_test_input_path, "w") as flines:
+                                        flines.write(
+                                            "\n".join(
+                                                [
+                                                    name
+                                                    for name in test_name_and_task_list.keys()
+                                                ]
+                                            )
+                                        )
+                                    env["TEST_INPUT"] = os.path.join("/tmp", test_input_path)
+
+                                # the env now has a TEST_INPUT, a TEST_OUTPUT, and a REPO_ROOT,
+                                # and we have a bash command that recognises these things.
+                                command = suite.run_tests_command
+                                image_name = suite.environment.image.name
+                                client = docker.from_env()
+                                volumes = {
+                                    tmpdir: {"bind": mount_dir, "mode": "rw"},
+                                    tmpdir2: {"bind": "/tmp", "mode": "rw"},
+                                }
+                                container = client.containers.run(
+                                    image_name,
+                                    [command],
+                                    volumes=volumes,
+                                    environment=env,
+                                    working_dir=mount_dir,
+                                    remove=False,
+                                    detach=True,
                                 )
-                            env["TEST_INPUT"] = test_input_path
+                                container.wait()
+                                # logs = container.logs().decode("utf-8")
+                                container.remove(force=True)
 
-                        # the env now has a TEST_INPUT, a TEST_OUTPUT, and a REPO_ROOT,
-                        # and we have a bash command that recognises these things.
-                        command = suite.run_tests_command
-                        image_name = suite.environment.image.name
-                        client = docker.from_env()
-                        volumes = {tmpdir: {"bind": mount_dir, "mode": "rw"}}
-                        container = client.containers.run(
-                            image_name,
-                            # the below listbrackets turn out to be crucial for unknown reasons
-                            [command],
-                            volumes=volumes,
-                            environment=env,
-                            working_dir=mount_dir,
-                            remove=False,
-                            detach=True,
-                        )
-                        container.wait()
-                        # logs = container.logs().decode("utf-8")
-                        container.remove(force=True)
+                                with open(
+                                    os.path.join(tmpdir2, test_output_path), "r"
+                                ) as flines:
+                                    test_results = json.load(flines)
 
-                        with open(os.path.join(tmpdir, test_output_path), "r") as flines:
-                            test_results = json.load(flines)
-                        # validate the output
-                        import shutil
+                                parsed_test_results = TestRunOutput(**test_results)
+                                assert parsed_test_results.exitcode == 0, "exit code was not 0"
+                                number_of_tests_run = parsed_test_results.summary["total"]
+                                if run_all:
+                                    assert number_of_tests_run == len(suite.tests), (
+                                        f"expected {len(suite.tests)} tests to run",
+                                        f"got {number_of_tests_run}",
+                                    )
+                                else:
+                                    assert number_of_tests_run == len(
+                                        test_name_and_task_list
+                                    ), (
+                                        f"expected {len(test_name_and_task_list)} tests to"
+                                        f" run, got {number_of_tests_run}"
+                                    )
+                                # match the result to the task and testresults object.
+                                for result in parsed_test_results.tests:
+                                    result = Result(**result)
+                                    stages = {}
+                                    total_duration = 0
+                                    for stage_name in ["setup", "call", "teardown"]:
+                                        stage = getattr(result, stage_name)
+                                        stages[stage_name] = StageResult(
+                                            duration=stage["duration"],
+                                            outcome=stage["outcome"],
+                                        )
+                                        total_duration += stage["duration"]
 
-                        shutil.copy(
-                            os.path.join(tmpdir, test_output_path), "/tmp/test_output.json"
-                        )
+                                    test_name = result.nodeid.split("::")[-1]
+                                    test_run_result = TestRunResult(
+                                        uuid=str(uuid.uuid4()),
+                                        outcome=result.outcome,
+                                        duration_ms=total_duration,
+                                        start_time=parsed_test_results.created,
+                                        stages=stages,
+                                    )
 
-                        parsed_test_results = TestRunOutput(**test_results)
-                        assert parsed_test_results.exitcode == 0
-                        number_of_tests_run = parsed_test_results.summary["total"]
-                        if run_all:
-                            assert number_of_tests_run == len(suite.tests)
-                        else:
-                            assert number_of_tests_run == len(test_name_and_task_list)
-                        # match the result to the task and testresults object.
-                        for result in parsed_test_results.tests:
-                            result = Result(**result)
-                            stages = {}
-                            total_duration = 0
-                            for stage_name in ["setup", "call", "teardown"]:
-                                stage = getattr(result, stage_name)
-                                stages[stage_name] = StageResult(
-                                    duration=stage["duration"], outcome=stage["outcome"]
-                                )
-                                total_duration += stage["duration"]
+                                    results_obj = test_schema.TestResults.lookupUnique(
+                                        test_and_commit=(suite.tests[test_name], commit)
+                                    )
+                                    if not results_obj:
+                                        results_obj = test_schema.TestResults(
+                                            test=suite.tests[test_name],
+                                            commit=commit,
+                                            results=[],
+                                        )
 
-                            test_name = result.nodeid.split("::")[-1]
-                            test_run_result = TestRunResult(
-                                uuid=str(uuid.uuid4()),
-                                outcome=result.outcome,
-                                duration_ms=total_duration,
-                                start_time=parsed_test_results.created,
-                                stages=stages,
-                            )
-
-                            results_obj = test_schema.TestResults.lookupUnique(
-                                test_and_commit=(suite.tests[test_name], commit)
-                            )
-                            if not results_obj:
-                                results_obj = test_schema.TestResults(
-                                    test=suite.tests[test_name], commit=commit, results=[]
-                                )
-
-                            results_obj.add_test_run_result(test_run_result)
-                    # ensure all tasks in the task list are marked completed.
-                    for task in task_list:
-                        task.completed(when=self.clock.time())
+                                    results_obj.add_test_run_result(test_run_result)
+                            # ensure all tasks in the task list are marked completed.
+                            for task in task_list:
+                                task.completed(when=self.clock.time())
+                    except Exception as e:
+                        # TODO error out the actual TestResults
+                        for task in task_list:
+                            task.failed(when=self.clock.time())
+                        raise e
 
     def generate_test_plan(self, task):
         """Parse the task config, check out the repo, and run the specified command."""
