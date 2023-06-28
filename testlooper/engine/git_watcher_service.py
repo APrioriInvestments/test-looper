@@ -11,9 +11,10 @@ from dataclasses import dataclass
 from flask import Flask, request
 from gevent.pywsgi import WSGIServer
 from object_database import ServiceBase
+from testlooper.schema.test_schema import DesiredTesting, TestFilter
 
 from testlooper.utils import setup_logger
-from testlooper.schema.schema import engine_schema, repo_schema
+from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 
 from typing import List, Dict
 
@@ -48,6 +49,15 @@ class GitPayload:
     deleted: str
 
 
+DEFAULT_DESIRED_TESTING = DesiredTesting(
+    runs_desired=1,
+    fail_runs_desired=0,
+    flake_runs_desired=0,
+    new_runs_desired=0,
+    filter=TestFilter(labels="Any", path_prefixes="Any", suites="Any", regex=None),
+)
+
+
 def filter_keys(d, cls):
     return {k: v for k, v in d.items() if k in cls.__annotations__}
 
@@ -56,7 +66,7 @@ class GitWatcherService(ServiceBase):
     """Listens for POST requests, generates ODB objects (and maybe Tasks)"""
 
     def initialize(self):
-        self.db.subscribeToSchema(engine_schema, repo_schema)
+        self.db.subscribeToSchema(engine_schema, repo_schema, test_schema)
         self._logger = setup_logger(__name__, level=logging.INFO)
         self.app = Flask(__name__)
         self.app.add_url_rule(
@@ -143,6 +153,7 @@ class GitWatcherService(ServiceBase):
 
             with self.db.transaction():
                 prev_commit = repo_schema.Commit.lookupUnique(hash=payload.before)
+                new_commits = []
                 for payload_commit in payload.commits:
                     commit = repo_schema.Commit.lookupUnique(hash=payload_commit.id)
                     if commit is None:
@@ -157,6 +168,7 @@ class GitWatcherService(ServiceBase):
                             author=payload_commit.author_and_email,
                             test_config=test_config,
                         )
+                        new_commits.append(commit)
                         _ = engine_schema.TestPlanGenerationTask.create(commit=commit)
                         self._logger.info(f"Created commit {commit.hash}")
                         if prev_commit is not None:
@@ -175,9 +187,28 @@ class GitWatcherService(ServiceBase):
                         repo=repo, name=branch_name, top_commit=top_commit
                     )
                     self._logger.info(f"Created branch {branch.name}")
+
+                    # generate a DesiredTesting (temporarily, this is 1
+                    # runs_desired for everyone).
+                    bdt = test_schema.BranchDesiredTesting(
+                        branch=branch, desired_testing=DEFAULT_DESIRED_TESTING
+                    )
+                    for commit in new_commits:
+                        bdt.apply_to(commit)
                 else:
                     # update the top commit
                     branch = repo_schema.Branch.lookupUnique(repo_and_name=(repo, branch_name))
+                    # apply desired_testing
+                    bdt = test_schema.BranchDesiredTesting.lookupUnique(branch=branch)
+                    if bdt is None:
+                        self._logger.warning(
+                            'No BranchDesiredTesting found for branch "%s"' % branch.name
+                        )
+                        bdt = test_schema.BranchDesiredTesting(
+                            branch=branch, desired_testing=DEFAULT_DESIRED_TESTING
+                        )
+                    for commit in new_commits:
+                        bdt.apply_to(commit)
                     top_commit = repo_schema.Commit.lookupUnique(hash=payload.after)
                     branch.top_commit = top_commit
                     self._logger.info(

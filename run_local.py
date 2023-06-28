@@ -39,7 +39,6 @@ from testlooper.engine.local_engine_service import LocalEngineService
 from testlooper.schema.engine_schema import StatusEvent
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
-from testlooper.schema.test_schema import DesiredTesting, TestFilter
 from testlooper.service import TestlooperService
 from testlooper.utils import TL_SERVICE_NAME, setup_logger
 from testlooper.vcs import Git
@@ -160,23 +159,6 @@ def main(
             )
             plan_task_blocker.blockUntilTrue()
 
-            # # temp: set desired testing = 1 for all our branches (TODO do the commits too)
-            with database.transaction():
-                branches = repo_schema.Branch.lookupAll(repo=repo)
-                for branch in branches:
-                    branch.set_desired_testing(
-                        DesiredTesting(
-                            runs_desired=1,
-                            fail_runs_desired=0,
-                            flake_runs_desired=0,
-                            new_runs_desired=0,
-                            filter=TestFilter(
-                                labels="Any", path_prefixes="Any", suites="Any", regex=None
-                            ),
-                        )
-                    )
-                    logger.info("Generated desired testing for branch %s", branch.name)
-
             suite_task_blocker = Reactor(
                 database,
                 partial(
@@ -184,6 +166,12 @@ def main(
                 ),
             )
             suite_task_blocker.blockUntilTrue()
+
+            with database.view():
+                # temp - check that the commit desired testings have come in properly
+                commits = repo_schema.Commit.lookupAll()
+                for commit in commits:
+                    assert test_schema.CommitDesiredTesting.lookupUnique(commit=commit)
 
             with database.transaction():
                 # generate TestRunTasks for all our suites and commits.
