@@ -34,6 +34,7 @@ from object_database.web.LoginPlugin import LoginIpPlugin
 
 from testlooper.engine.git_watcher_service import GitWatcherService
 from testlooper.engine.local_engine_service import LocalEngineService
+from testlooper.engine.schema_monitor import SchemaMonitorService
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.service import TestlooperService
@@ -135,7 +136,10 @@ def main(
                 # git watcher - receives post requests from git webhooks and
                 # updates ODB accordingly
                 ServiceManager.startService("GitWatcherService", 1)
-
+                # schema monitor - just for admin and testing
+                _ = ServiceManager.createOrUpdateService(
+                    SchemaMonitorService, "SchemaMonitorService", target_count=1
+                )
             # initialise the Repo object.
             primary_branch_name = parsed_test_config["primary-branch"]
             with database.transaction():
