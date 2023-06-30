@@ -67,7 +67,7 @@ class LocalEngineAgent:
     Args:
         db: A connection to an in-memory runing ODB instance
         source_control_store: A Git object pointing to a local disk location.
-        artifact_store: A connection to an artifact store (not yet implemented).
+        artifact_store: A connection to an artifact store (TODO not yet implemented).
         clock: A module implementing time().
     """
 
@@ -150,100 +150,82 @@ class LocalEngineAgent:
                 # TODO fail task
 
     def generate_test_run_tasks(self):
-        """Looks for new or update CommitDesiredTestings, and works out what TestRunTasks
+        """Looks for new or updated CommitDesiredTestings, and works out what TestRunTasks
         to create.
 
+        Applies the DesiredTesting filter to the commit and works out the tests affected.
+        (this is also useful in the UI to show users what tests are about to run).
 
-        Applies the DesiredTesting filter to the commit and works out the tests (this is also
-        useful in the UI to show users what tests are about to run).
-
-        Also generates TestResults for all touched tests."""
+        Then generates TestResults for all touched tests, along with TestRunTasks,
+        as appropriate.
+        """
+        tasks_to_run = []
         with self.db.view():
             # wait for a commit test defintion, both are needed
-            cdts = [cdt for cdt in test_schema.CommitDesiredTesting.lookupAll()]
+            # cdts = [cdt for cdt in test_schema.CommitDesiredTesting.lookupAll()]
+            for commit_desired_testing in test_schema.CommitDesiredTesting.lookupAll():
+                commit = commit_desired_testing.commit
+                desired_testing = commit_desired_testing.desired_testing
+                commit_test_definition = test_schema.CommitTestDefinition.lookupUnique(
+                    commit=commit
+                )
+                if commit_test_definition is not None:
+                    # we only want to run this once all test suite tasks have completed
+                    tasks = engine_schema.TestSuiteGenerationTask.lookupAll(commit=commit)
+                    if all(
+                        task.status[0]
+                        in (StatusEvent.COMPLETED, StatusEvent.FAILED, StatusEvent.TIMEDOUT)
+                        for task in tasks
+                    ):
+                        # work out what tests are affected.
+                        suites = commit_test_definition.test_suites.values()
+                        test_name_to_suite = {}
+                        all_tests = set()
+                        for suite in suites:
+                            for test in suite.tests.values():
+                                test_name_to_suite[test.name] = suite
+                                all_tests.add(test)
+
+                        tasks_to_run.append(
+                            (commit, desired_testing, test_name_to_suite, all_tests)
+                        )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            for cdt in cdts:
-                with self.db.view():
-                    # we only want to run this once all test suite tasks have completed
-                    commit_test_definition = test_schema.CommitTestDefinition.lookupUnique(
-                        commit=cdt.commit
-                    )
-                    if commit_test_definition is not None:
-                        tasks = engine_schema.TestSuiteGenerationTask.lookupAll(
-                            commit=cdt.commit
-                        )
-                        if all(
-                            task.status[0]
-                            in (
-                                StatusEvent.COMPLETED,
-                                StatusEvent.FAILED,
-                                StatusEvent.TIMEDOUT,
-                            )
-                            for task in tasks
-                        ):
-                            future = executor.submit(
-                                self.parse_cdt_filter_and_run, cdt, commit_test_definition
-                            )
-                            try:
-                                future.result()
-                            except Exception as e:
-                                self.logger.error(f"Error generating test run tasks: {e}")
+            for commit, desired_testing, test_name_to_suite, all_tests in tasks_to_run:
+                test_filter = desired_testing.filter
 
-    def parse_cdt_filter_and_run(
-        self,
-        cdt: test_schema.CommitDesiredTesting,
-        commit_test_definition: test_schema.CommitTestDefinition,
-    ) -> None:
-        """Look at the TestFilter in the CommitDesiredTesting and work out what Tests are
-        affected. From there, look at the TestResults and the runs_desired in the
-        CommitDesiredTesting, thus what TestRunTasks need to be created and which
-        TestResults runs_desired need bumping.
-        """
-        with self.db.transaction():
-            commit = cdt.commit
-            desired_testing = cdt.desired_testing
-
-            # work out what tests are affected.
-            desired_testing_filter = desired_testing.filter
-            if commit_test_definition is None:
-                self.logger.error("No CommitTestDefinition for commit {commit.hash} yet")
-                return
-            suites = commit_test_definition.test_suites.values()
-            test_name_to_suite = {}
-            all_tests = set()
-            for suite in suites:
-                for test in suite.tests.values():
-                    test_name_to_suite[test.name] = suite
-                    all_tests.add(test)
-            tests_to_run = self.parse_filter(
-                desired_testing_filter, all_tests, test_name_to_suite
-            )
-
-            if not tests_to_run:
-                return
-
-            # look at the TestResults for these tests. Decide which ones need extra runs and
-            # thus TestRunTasks.
-            for test in tests_to_run:
-                test_result = test_schema.TestResults.lookupUnique(
-                    test_and_commit=(test, commit)
+                future = executor.submit(
+                    self.parse_filter, test_filter, all_tests, test_name_to_suite
                 )
-                if test_result is None:
-                    test_result = test_schema.TestResults(test=test, commit=commit)
-                diff = desired_testing.runs_desired - test_result.runs_desired
-                if diff > 0:
-                    test_result.runs_desired = desired_testing.runs_desired
-                    _ = engine_schema.TestRunTask.create(
-                        test_results=test_result,
-                        runs_desired=diff,
-                        commit=commit,
-                        suite=test_name_to_suite[test.name],
-                    )
-                    self.logger.info(
-                        f"Created TestRunTask for test {test.name} on commit {commit.hash}"
-                    )
-                    # TODO assign a timeout
+                try:
+                    # contemplate using concurrent.futures.as_completed then a post-processor.
+                    tests_to_run = future.result()
+                    if tests_to_run:
+                        with self.db.transaction():
+                            for test in tests_to_run:
+                                test_result = test_schema.TestResults.lookupUnique(
+                                    test_and_commit=(test, commit)
+                                )
+                                if test_result is None:
+                                    test_result = test_schema.TestResults(
+                                        test=test, commit=commit
+                                    )
+                                diff = desired_testing.runs_desired - test_result.runs_desired
+                                if diff > 0:
+                                    test_result.runs_desired = desired_testing.runs_desired
+                                    _ = engine_schema.TestRunTask.create(
+                                        test_results=test_result,
+                                        runs_desired=diff,
+                                        commit=commit,
+                                        suite=test_name_to_suite[test.name],
+                                    )
+                                    self.logger.info(
+                                        f"Created TestRunTask for test {test.name} "
+                                        f"on commit {commit.hash}"
+                                    )
+
+                except Exception as e:
+                    self.logger.error(f"Error generating test run tasks: {e}")
 
     def parse_filter(
         self,
@@ -253,45 +235,49 @@ class LocalEngineAgent:
     ) -> Set[test_schema.Test]:
         """Filter is on labels, paths, suites, and regex on name."""
         filtered_tests = set()
-        # Filter by labels
-        if test_filter.labels == "Any" or test_filter.labels is None:
-            filtered_tests = all_tests
-        else:
-            for test in all_tests:
-                for label in test_filter.labels:
-                    if test.label.startswith(label):
-                        filtered_tests.add(test)
 
-        # Filter by path prefixes
-        path_set = set()
-        if test_filter.path_prefixes is not None and test_filter.path_prefixes != "Any":
-            for test in filtered_tests:
-                for path_prefix in test_filter.path_prefixes:
-                    if test.path.startswith(path_prefix):
-                        path_set.add(test)
-            filtered_tests &= path_set
+        # this is used in a thread so somewhat bad practice, but all the function does is
+        # lookups so can't be avoided
+        # (and we don't need our reactor to re-trigger on any of these variables).
+        with self.db.view():
+            # Filter by labels
+            if test_filter.labels == "Any" or test_filter.labels is None:
+                filtered_tests = all_tests
+            else:
+                for test in all_tests:
+                    for label in test_filter.labels:
+                        if test.label.startswith(label):
+                            filtered_tests.add(test)
 
-        # Filter by suites
-        suite_set = set()
-        if test_filter.suites is not None and test_filter.suites != "Any":
-            for test in filtered_tests:
-                for suite_name in test_filter.suites:
-                    if test_name_to_suite[test.name].name == suite_name:
-                        # wrong -test doesn't have a suite. need to pass in test -> suite name
-                        suite_set.add(test)
-            filtered_tests &= suite_set
+            # Filter by path prefixes
+            path_set = set()
+            if test_filter.path_prefixes is not None and test_filter.path_prefixes != "Any":
+                for test in filtered_tests:
+                    for path_prefix in test_filter.path_prefixes:
+                        if test.path.startswith(path_prefix):
+                            path_set.add(test)
+                filtered_tests &= path_set
 
-        # Filter by regex
-        regex_set = set()
-        if test_filter.regex is not None:
-            for test in filtered_tests:
-                if re.match(test_filter.regex, test.name):
-                    regex_set.add(test)
+            # Filter by suites
+            suite_set = set()
+            if test_filter.suites is not None and test_filter.suites != "Any":
+                for test in filtered_tests:
+                    for suite_name in test_filter.suites:
+                        if test_name_to_suite[test.name].name == suite_name:
+                            suite_set.add(test)
+                filtered_tests &= suite_set
 
-            filtered_tests &= regex_set
+            # Filter by regex
+            regex_set = set()
+            if test_filter.regex is not None:
+                for test in filtered_tests:
+                    if re.match(test_filter.regex, test.name):
+                        regex_set.add(test)
 
-        if not filtered_tests:
-            self.logger.error(f"Filter {test_filter} matched no tests")
+                filtered_tests &= regex_set
+
+            if not filtered_tests:
+                self.logger.error(f"Filter {test_filter} matched no tests")
 
         return filtered_tests
 

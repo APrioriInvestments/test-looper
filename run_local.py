@@ -75,7 +75,6 @@ def main(
             server = startServiceManagerProcess(
                 tmp_dirname, odb_port, token, loglevelName=log_level, logDir=False
             )
-
             database = connect("localhost", odb_port, token, retry=True)
             database.subscribeToSchema(
                 core_schema,

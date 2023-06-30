@@ -10,7 +10,7 @@ from typing import List
 
 from .schema_declarations import repo_schema, ui_schema, test_schema
 from ..utils import H1_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link, setup_logger
-from .test_schema import DesiredTesting, TestResults
+from .test_schema import DesiredTesting, TestResults, TestFilter
 
 logger = setup_logger(__name__, level=logging.INFO)
 
@@ -279,8 +279,14 @@ class Commit:
         return None  # no branch was found for the given commit
 
     def rerun_all_tests(self):
-        # TODO
-        logger.info(f"Rerunning all tests for commit {self.hash}")
+        commit_desired_testing = test_schema.CommitDesiredTesting.lookupUnique(commit=self)
+        if commit_desired_testing is not None:
+            desired_testing = commit_desired_testing.desired_testing
+            new_desired_testing = desired_testing.replacing(
+                runs_desired=desired_testing.runs_desired + 1,
+                filter=TestFilter(labels="Any", path_prefixes="Any", suites="Any", regex=None),
+            )
+            commit_desired_testing.update_desired_testing(new_desired_testing)
 
     def rerun_failed_tests(self):
         # TODO
