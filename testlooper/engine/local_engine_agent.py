@@ -352,7 +352,6 @@ class LocalEngineAgent:
             later).
 
 
-        TODO if we catch a failure, then we should mark the tasks as failed.
         TODO this code is horrible horrible
         """
         # NB with such a large transaction, an unexpected error will throw all in-flight runs
@@ -372,29 +371,29 @@ class LocalEngineAgent:
 
                 # generate a list of test runs.
                 for suite, task_list in suites_dict.items():
-                    try:
-                        with tempfile.TemporaryDirectory() as tmpdir2:
-                            max_total_runs = max([task.runs_desired for task in task_list])
-                            tests_to_run = [{} for _ in range(max_total_runs)]
-                            run_all_tests = [False for _ in range(max_total_runs)]
-                            for task in task_list:
-                                for i in range(task.runs_desired):
-                                    if run_all_tests[i]:
-                                        continue
-                                    if task.test_results is None:
-                                        run_all_tests[i] = True
-                                    else:
-                                        node_id = (
-                                            task.test_results.test.path
-                                            + "::"
-                                            + task.test_results.test.name
-                                        )
-                                        tests_to_run[i][node_id] = task
+                    with tempfile.TemporaryDirectory() as tmpdir2:
+                        max_total_runs = max([task.runs_desired for task in task_list])
+                        tests_to_run = [{} for _ in range(max_total_runs)]
+                        run_all_tests = [False for _ in range(max_total_runs)]
+                        for task in task_list:
+                            for i in range(task.runs_desired):
+                                if run_all_tests[i]:
+                                    continue
+                                if task.test_results is None:
+                                    run_all_tests[i] = True
+                                else:
+                                    node_id = (
+                                        task.test_results.test.path
+                                        + "::"
+                                        + task.test_results.test.name
+                                    )
+                                    tests_to_run[i][node_id] = task
 
-                            env = os.environ.copy()
-                            env["REPO_ROOT"] = mount_dir
-                            env["TEST_OUTPUT"] = os.path.join("/tmp", test_output_path)
-                            # test_list is tuples of (test_name, task)
+                        env = os.environ.copy()
+                        env["REPO_ROOT"] = mount_dir
+                        env["TEST_OUTPUT"] = os.path.join("/tmp", test_output_path)
+                        # test_list is tuples of (test_name, task)
+                        try:
                             for run_all, test_name_and_task_list in zip(
                                 run_all_tests, tests_to_run
                             ):
@@ -446,7 +445,10 @@ class LocalEngineAgent:
                                     test_results = json.load(flines)
 
                                 parsed_test_results = TestRunOutput(**test_results)
-                                assert parsed_test_results.exitcode == 0, "exit code was not 0"
+                                assert parsed_test_results.exitcode in (
+                                    0,
+                                    1,
+                                ), f"unexpected exit code {parsed_test_results.exitcode}"
                                 number_of_tests_run = parsed_test_results.summary["total"]
                                 if run_all:
                                     assert number_of_tests_run == len(suite.tests), (
@@ -493,14 +495,58 @@ class LocalEngineAgent:
                                         )
 
                                     results_obj.add_test_run_result(test_run_result)
-                            # ensure all tasks in the task list are marked completed.
+                        except Exception as e:
+                            self.logger.error(
+                                f"Error running tests for commit {commit.hash}: {e}"
+                            )
+                            # get the affected TestResults.
+
+                            # FIXME this likely requires a new error, it's not
+                            # really a pytest error.
+                            failure = TestRunResult(
+                                uuid=str(uuid.uuid4()),
+                                outcome="error",
+                                duration_ms=0,
+                                start_time=self.clock.time(),
+                                stages={},
+                            )
+                            if run_all:
+                                # error out the whole suite
+                                for test in suite.tests.values():
+                                    results_obj = test_schema.TestResults.lookupUnique(
+                                        test_and_commit=(test, commit)
+                                    )
+                                    if not results_obj:
+                                        results_obj = test_schema.TestResults(
+                                            test=test,
+                                            commit=commit,
+                                            results=[],
+                                        )
+
+                                    results_obj.add_test_run_result(failure)
+                            else:
+                                for test_node in test_name_and_task_list.keys():
+                                    test_name = test_node.split("::")[-1]
+                                    # error out the individual tests.
+                                    results_obj = test_schema.TestResults.lookupUnique(
+                                        test_and_commit=(suite.tests[test_name], commit)
+                                    )
+                                    if not results_obj:
+                                        results_obj = test_schema.TestResults(
+                                            test=suite.tests[test_name],
+                                            commit=commit,
+                                            results=[],
+                                        )
+                                    results_obj.add_test_run_result(failure)
+
                             for task in task_list:
-                                task.completed(when=self.clock.time())
-                    except Exception as e:
-                        # TODO error out the actual TestResults
+                                task.failed(when=self.clock.time())
+                        # ensure all tasks in the task list are marked completed.
                         for task in task_list:
-                            task.failed(when=self.clock.time())
-                        raise e
+                            try:
+                                task.completed(when=self.clock.time())
+                            except RuntimeError:
+                                continue
 
     def generate_test_plan(self, task):
         """Parse the task config, check out the repo, and run the specified command."""

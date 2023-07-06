@@ -103,17 +103,21 @@ class Repo:
                 commit_test_results = test_schema.TestResults.lookupAll(
                     commit=branch.top_commit
                 )
-                branch_test_status = "Passing"
+                branch_test_status = "Passing" if commit_test_results else "Not Run"
                 most_recent_timestamp = 0
                 for test in commit_test_results:
                     most_recent_outcome = (
-                        test.results[-1].outcome if test.results else "not run"
+                        test.results[-1].outcome if test.results else "Not Run"
                     )
                     timestamp = test.results[-1].start_time if test.results else 0
                     if timestamp > most_recent_timestamp:
                         most_recent_timestamp = timestamp
                     if most_recent_outcome == "failed":
                         branch_test_status = "Failing"
+                    elif most_recent_outcome == "error":
+                        branch_test_status = "Error"
+                    elif test.runs_pending:
+                        branch_test_status = "Pending"
 
                 if most_recent_timestamp > 0:
                     formatted_time = datetime.utcfromtimestamp(most_recent_timestamp).strftime(
@@ -310,7 +314,12 @@ class Commit:
                 return test.name
             elif field == "Status":
                 if not result.runs_pending:
-                    return "FAILED" if result.runs_failed else "PASSED"
+                    if result.runs_errored:
+                        return "ERROR"
+                    elif result.runs_failed:
+                        return "FAILED"
+                    else:
+                        return "PASSED"
                 else:
                     return "PENDING"
             elif field == "Failure Rate":
@@ -538,10 +547,16 @@ class Branch:
                 if result is None:
                     return "NA"
                 else:
+                    if result.runs_errored > 0:
+                        result_text = cells.Text("ERROR", text_color="red")
+                    elif result.runs_failed > 0:
+                        result_text = cells.Text("FAILED", text_color="red")
+                    elif result.runs_pending > 0:
+                        result_text = cells.Text("PENDING", text_color="orange")
+                    else:
+                        result_text = "PASSED"
                     return cells.Clickable(
-                        cells.Text("FAILED", text_color="red")
-                        if result.runs_failed > 0
-                        else "PASSED",
+                        result_text,
                         get_tl_link(result),
                     )
 

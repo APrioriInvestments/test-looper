@@ -526,7 +526,7 @@ class TestResults:
         elif outcome == "xfailed":
             self.runs_xfailed += 1
         elif outcome == "error":
-            self.rus_errored += 1
+            self.runs_errored += 1
         elif outcome == "skipped":
             self.runs_skipped += 1
         else:

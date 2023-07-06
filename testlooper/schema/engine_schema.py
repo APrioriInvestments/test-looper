@@ -92,15 +92,23 @@ class TaskBase:
         return self._status_history[-1]
 
     def started(self, when: float):
+        if self.status[0] != StatusEvent.CREATED:
+            raise RuntimeError("Can't start a task that's already started.")
         self._add_status(StatusEvent.STARTED, when)
 
     def failed(self, when: float):
+        if self.status[0] != StatusEvent.STARTED:
+            raise RuntimeError("Can't fail a task that's not started.")
         self._add_status(StatusEvent.FAILED, when)
 
     def timeout(self, when: float):
+        if self.status[0] != StatusEvent.STARTED:
+            raise RuntimeError("Can't timeout a task that's not started.")
         self._add_status(StatusEvent.TIMEDOUT, when)
 
     def completed(self, when: float):
+        if self.status[0] != StatusEvent.STARTED:
+            raise RuntimeError("Can't complete a task that's not started.")
         self._add_status(StatusEvent.COMPLETED, when)
 
 
