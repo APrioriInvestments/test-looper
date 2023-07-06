@@ -18,6 +18,8 @@
 
 import logging
 import os
+import requests
+import shutil
 import sys
 import tempfile
 import time
@@ -25,6 +27,7 @@ import yaml
 
 from numpy.random import default_rng
 from object_database import connect, core_schema, service_schema
+from object_database.database_connection import DatabaseConnection
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
 from object_database.util import genToken
@@ -51,6 +54,7 @@ HTTP_PORT = 8001
 ODB_PORT = 8021
 LOGLEVEL_NAME = "ERROR"
 GIT_WATCHER_PORT = 9999
+REPO_PATH = "."
 
 
 def main(
@@ -69,6 +73,9 @@ def main(
     repo_name = parsed_test_config["name"]
 
     with tempfile.TemporaryDirectory() as tmp_dirname:
+        # copy repo to a tmpdir just to be safu
+        repo_path = os.path.join(tmp_dirname, repo_name)
+        shutil.copytree(REPO_PATH, repo_path)
         server = None
         try:
             # spin up the required TL services
@@ -127,7 +134,6 @@ def main(
                     TestlooperService, TL_SERVICE_NAME, target_count=1
                 )
                 # local engine - will eventually do all the below work.
-                repo_path = os.path.join(tmp_dirname, repo_name)
                 _ = engine_schema.LocalEngineConfig(path_to_git_repo=repo_path)
                 _ = ServiceManager.createOrUpdateService(
                     LocalEngineService, "LocalEngineService", target_count=1
@@ -139,17 +145,13 @@ def main(
                 _ = ServiceManager.createOrUpdateService(
                     SchemaMonitorService, "SchemaMonitorService", target_count=1
                 )
-            # initialise the Repo object.
-            primary_branch_name = parsed_test_config["primary-branch"]
-            with database.transaction():
-                repo_config = RepoConfig.Local(path=repo_path)
-                repo = repo_schema.Repo(name=repo_name, config=repo_config)
-                _ = repo_schema.TestConfig(config=test_config, repo=repo)
-                branch = repo_schema.Branch(repo=repo, name=primary_branch_name)
-                repo.primary_branch = branch
-
-            # generate a Git object, then run git commands to generate test repo
-            _ = generate_repo(path_to_root=repo_path)
+            time.sleep(2)  # temp - let the services start up before we start hitting them
+            scan_repo(
+                database,
+                post_url=f"http://localhost:{git_watcher_port}/git_updater",
+                path_to_repo=repo_path,
+                path_to_tl_config=path_to_config,
+            )
 
             while True:
                 time.sleep(0.1)
@@ -160,80 +162,105 @@ def main(
                 server.wait()
 
 
-def add_to_dict(directory, input_dict):
-    """Walk a dir, adding all files to a dict."""
-    for filename in os.listdir(directory):
-        new_path = os.path.join(directory, filename)
-        if os.path.isfile(new_path):
-            with open(new_path) as file:
-                input_dict[new_path] = file.read()
-        elif os.path.isdir(new_path):
-            add_to_dict(new_path, input_dict)
+# def add_to_dict(directory, input_dict):
+#     """Walk a dir, adding all files to a dict."""
+#     for filename in os.listdir(directory):
+#         new_path = os.path.join(directory, filename)
+#         if os.path.isfile(new_path):
+#             with open(new_path) as file:
+#                 input_dict[new_path] = file.read()
+#         elif os.path.isdir(new_path):
+#             add_to_dict(new_path, input_dict)
 
 
-def generate_repo(
-    path_to_root: str, path_to_config_dir=".testlooper", path_to_test_dir="tests"
+def scan_repo(
+    database: DatabaseConnection,
+    post_url: str,
+    path_to_repo: str,
+    path_to_tl_config=".testlooper/config.yaml",
+    max_depth=5,
+    branch_prefix="will",  # FIXME a temp shim to make rerunning quicker
 ) -> Git:
-    """Generate a temporary repo with a couple of branches and some commits.
-    Also generate a tests/ folder with some stuff in it for pytest to run.
-
-    repo structure:
-
-           A---B---C---D   master
-                \
-                 E---F   feature
-
-
-    We copy the config_dir from testlooper itself to allow tasks to run.
-    We copy the test dir from testlooper to give pytest something to grab.
     """
-    author = "author <author@aprioriinvestments.com>"
-    repo = Git.get_instance(path_to_root)
-    repo.init()
+    Scan a repo using the repo config path, listing all *local* branches down to
+    <max_depth> commits.
 
-    config_dir_contents = {}
-    add_to_dict(path_to_config_dir, config_dir_contents)
+    Assumes we are on the top commit of some branch
+    """
+    tl_config = os.path.join(path_to_repo, path_to_tl_config)
+    assert os.path.isfile(tl_config)
+    assert os.path.isdir(path_to_repo)
+    assert os.path.isdir(os.path.join(path_to_repo, ".git"))
+    git_repo = Git.get_instance(path_to_repo)
+    # assumption: the repo config is unchanged across commits, so just use the current version
+    with open(tl_config, "r") as flines:
+        test_config = flines.read()
 
-    # check for a post-receive hook in the config dir. If it exists, stick it
-    # in .git/hooks
-    if os.path.exists(os.path.join(path_to_config_dir, "post-receive")):
-        with open(os.path.join(path_to_config_dir, "post-receive")) as flines:
-            post_commit = flines.read()
-        with open(os.path.join(path_to_root, ".git/hooks/post-receive"), "w") as flines:
-            flines.write(post_commit)
-        os.chmod(os.path.join(path_to_root, ".git/hooks/post-receive"), 0o755)
+    parsed_test_config = yaml.safe_load(test_config)
+    repo_name = parsed_test_config["name"]
+    primary_branch_name = parsed_test_config["primary-branch"]
 
-    a = repo.create_commit(None, config_dir_contents, "message1", author=author)
+    with database.transaction():
+        # spin up the initial stuff
+        repo_config = RepoConfig.Local(path=path_to_repo)
+        repo = repo_schema.Repo(name=repo_name, config=repo_config)
+        _ = repo_schema.TestConfig(config=test_config, repo=repo)
 
-    # need to use a dependent repo for the push hooks to work
-    repo.detach_head()
-    dep_repo = Git.get_instance(path_to_root + "/dep_repo")
-    dep_repo.clone_from(path_to_root)
+    for branch_name in git_repo.list_branches():
+        if not branch_name.startswith(branch_prefix):
+            continue
+        # don't spam the POSTs
+        time.sleep(0.1)
+        commits = [
+            x
+            for x in git_repo.get_top_commits_for_branch(branch_name, n=max_depth)
+            if x.strip()
+        ]
+        commit_data = []
+        for commit in commits:
+            commit_id = commit
+            author_name = git_repo.get_commit_author_name(commit_id)
+            author_email = git_repo.get_commit_author_email(commit_id)
+            commit_message = git_repo.get_commit_short_message(commit_id)
+            url = f"http://localhost:{GIT_WATCHER_PORT}/{repo_name}/commit/{commit_id}"
+            commit_data.append(
+                {
+                    "id": commit_id,
+                    "message": commit_message,
+                    "url": url,  # this is fake
+                    "author": {
+                        "name": author_name,
+                        "email": author_email,
+                    },
+                }
+            )
+        data = {
+            "ref": f"refs/heads/{branch_name}",
+            "before": "0" * 40,
+            "after": commits[-1],
+            "created": True,
+            "deleted": False,
+            "repository": {
+                "name": repo_name,
+                "url": f"http://localhost:{GIT_WATCHER_PORT}/{repo_name}.git",  # this is fake
+            },
+            "pusher": {
+                "name": author_name,
+                "email": author_email,
+            },
+            "commits": commit_data,
+        }
 
-    test_dir_contents = {}
-    for filename in os.listdir(path_to_test_dir):
-        new_path = os.path.join(path_to_test_dir, filename)
-        if os.path.isfile(new_path):
-            with open(os.path.abspath(new_path)) as flines:
-                test_dir_contents[new_path] = flines.read()
-    b = dep_repo.create_commit(
-        a,
-        test_dir_contents,
-        "message2",
-        author,
-        on_branch="master",
-    )
-    assert dep_repo.push_commit(b, branch="master", force=False, create_branch=True)
+        requests.post(post_url, json=data)
 
-    c = dep_repo.create_commit(b, {"dir1/file2": "contents_2"}, "message3", author)
-    d = dep_repo.create_commit(c, {"dir2/file2": "contents_2"}, "message4", author)
-    assert dep_repo.push_commit(d, branch="master", force=False)
+    time.sleep(0.1)
+    # need to set the repo primary branch, which has now been populated and created.
+    with database.transaction():
+        repo.primary_branch = repo_schema.Branch.lookupUnique(
+            repo_and_name=(repo, primary_branch_name)
+        )
 
-    e = dep_repo.create_commit(b, {"dir1/file2": "contents_3"}, "message5", author)
-    f = dep_repo.create_commit(e, {"dir2/file2": "contents_3"}, "message6", author)
-    assert dep_repo.push_commit(f, branch="feature", force=False, create_branch=True)
-
-    return repo
+    return git_repo
 
 
 if __name__ == "__main__":

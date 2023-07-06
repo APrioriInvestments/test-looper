@@ -37,15 +37,23 @@ class Status:
         self._history.append((status, when))
 
     def start(self):
+        if self.latest[0] != StatusEvent.CREATED:
+            raise RuntimeError("Can't start a task that's already started.")
         self._add_status(StatusEvent.STARTED, time.time())
 
     def fail(self):
+        if self.latest[0] != StatusEvent.STARTED:
+            raise RuntimeError("Can't fail a task that's not started.")
         self._add_status(StatusEvent.FAILED, time.time())
 
     def timeout(self):
+        if self.latest[0] != StatusEvent.STARTED:
+            raise RuntimeError("Can't timeout a task that's not started.")
         self._add_status(StatusEvent.TIMEDOUT, time.time())
 
     def completed(self):
+        if self.latest[0] != StatusEvent.STARTED:
+            raise RuntimeError("Can't complete a task that's not started.")
         self._add_status(StatusEvent.COMPLETED, time.time())
 
 

@@ -35,7 +35,7 @@ class SchemaMonitorService(ServiceBase):
         isExpanded = defaultdict(lambda: cells.Slot(False))  # assumes unique obj names
 
         def makeColFun(schema, obj_name):
-            return lambda: list(schema._field_types[obj_name].keys())
+            return lambda: ["_identity"] + list(schema._field_types[obj_name].keys())
 
         def makeRowFun(obj):
             return lambda: obj.lookupAll()

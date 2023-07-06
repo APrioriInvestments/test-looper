@@ -56,7 +56,7 @@ class TestRunOutput:
     summary: Dict  # number of outcomes per category, total number of tests
     collectors: List
     tests: List[Result]  # test nodes, with outcome and a set of test stages.
-    warnings: List
+    warnings: Optional[List] = None
 
 
 class LocalEngineAgent:
@@ -93,18 +93,23 @@ class LocalEngineAgent:
             tasks = task_type.lookupAll()
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             for task in tasks:
-                with self.db.transaction():
-                    if task.status[0] is StatusEvent.CREATED:
-                        task.started(self.clock.time())
-                        future = executor.submit(executor_func, task)
-                        try:
-                            if task.timeout_seconds is None:
+                try:
+                    with self.db.transaction():
+                        timeout_seconds = task.timeout_seconds
+                        if task.status[0] is StatusEvent.CREATED:
+                            future = executor.submit(executor_func, task)
+                            if timeout_seconds is None:
                                 future.result()
                             else:
-                                future.result(timeout=task.timeout_seconds)
-                        except concurrent.futures.TimeoutError:
-                            self.logger.error(f"Task {task} timed out")
-                            task.timeout(when=self.clock.time())
+                                future.result(timeout=timeout_seconds)
+                except concurrent.futures.TimeoutError:
+                    with self.db.transaction():
+                        self.logger.error(f"Task {task} timed out")
+                        task.timeout(when=self.clock.time())
+                except Exception as e:
+                    # catch-all for any remaining exceptions
+                    self.logger.error(f"Task {task} failed: {e}")
+                    self._fail_task(task, str(e))
 
     def generate_test_plans(self):
         self.run_task(engine_schema.TestPlanGenerationTask, self.generate_test_plan)
@@ -134,7 +139,8 @@ class LocalEngineAgent:
 
         if test_plan is None:
             self.logger.error(f"Task {task} has no test plan data")
-            # TODO fail task.
+            with self.db.transaction():
+                task.failed(self.clock.time())
             return
 
         with self.db.transaction():
@@ -147,7 +153,7 @@ class LocalEngineAgent:
                 self.logger.error(
                     f"CommitTestDefinition already exists for commit {commit.hash}"
                 )
-                # TODO fail task
+                task.failed(self.clock.time())
 
     def generate_test_run_tasks(self):
         """Looks for new or updated CommitDesiredTestings, and works out what TestRunTasks
@@ -186,6 +192,7 @@ class LocalEngineAgent:
                                 test_name_to_suite[test.name] = suite
                                 all_tests.add(test)
 
+                        # TODO horrible horrible
                         tasks_to_run.append(
                             (commit, desired_testing, test_name_to_suite, all_tests)
                         )
@@ -319,6 +326,11 @@ class LocalEngineAgent:
                     self.logger.error(f"provided test runner produced invalid json: {e}")
                 except Exception as e:
                     self.logger.error(f"Task failed: {e}")
+                    # we can fail better here, don't need to error the whole suite.
+                    with self.db.transaction():
+                        for task_list in suites_dict.values():
+                            for task in task_list:
+                                task.failed(when=self.clock.time())
 
     def checkout_and_run(self, commit, suites_dict):
         """Checkout a commit, run all the suites in the suites dict.
@@ -739,6 +751,12 @@ class LocalEngineAgent:
                 data=None,
             )
             task.failed(self.clock.time())
+
+    def _fail_task(self, task, error):
+        if isinstance(task, engine_schema.TestPlanGenerationTask):
+            self._test_plan_task_failed(task, error)
+        elif isinstance(task, engine_schema.TestSuiteGenerationTask):
+            self._test_suite_task_failed(task, error)
 
     def _config_missing_data(self, task, missing_values):
         missing = ".".join(missing_values)

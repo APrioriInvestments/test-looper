@@ -404,6 +404,24 @@ class Git:
             ["git", "show", "-s", "--format=format:%an <%ae>", commit_hash]
         ).strip()
 
+    def get_commit_author_name(self, commit_hash: str) -> str:
+        """Return the commit author name for a given hash."""
+        return self._subprocess_check_output(
+            ["git", "show", "-s", "--format=format:%an", commit_hash]
+        ).strip()
+
+    def get_commit_author_email(self, commit_hash: str) -> str:
+        """Return the commit author email for a given hash."""
+        return self._subprocess_check_output(
+            ["git", "show", "-s", "--format=format:%ae", commit_hash]
+        ).strip()
+
+    def get_commit_short_message(self, commit_hash: str) -> str:
+        """Return the commit message for a given hash."""
+        return self._subprocess_check_output(
+            ["git", "show", "-s", "--format=format:%s", commit_hash]
+        ).strip()
+
     def get_commit_chain(self, branch_name: str) -> List[Tuple[str, str]]:
         """From the top commit of a branch, return a list of (child, parent) commits.
         The final commit will just be (child,)
@@ -416,6 +434,12 @@ class Git:
                 ).split("\n")
                 if x.strip()
             ]
+
+    def get_top_commits_for_branch(self, branch_name: str, n) -> List[str]:
+        """Return the top N commits for a branch."""
+        return self._subprocess_check_output(
+            ["git", "rev-list", "--reverse", "--max-count", str(n), branch_name]
+        ).split("\n")
 
     def create_worktree_and_reset_to_commit(self, commit_hash, directory):
         with self.git_repo_lock:
