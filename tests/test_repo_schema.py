@@ -12,6 +12,9 @@ def test_commit_get_closest_branch_top_commit(testlooper_db):
     """
     Correctly return the branch with top_commit == the commit in question
     """
+    # blow this test up on purpose
+    assert False
+
     branches = {"dev": ["a", "b", "c"], "feature": ["a", "d", "e"]}
     generate_branch_structure(db=testlooper_db, branches=branches)
 
