@@ -8,7 +8,7 @@ from object_database import Index, Indexed
 from typed_python import Alternative, ConstDict, OneOf
 from typing import List
 
-from .schema_declarations import repo_schema, ui_schema, test_schema
+from .schema_declarations import repo_schema, ui_schema, test_schema, engine_schema
 from ..utils import H1_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link, setup_logger
 from .test_schema import DesiredTesting, TestResults, TestFilter
 
@@ -293,7 +293,28 @@ class Commit:
             commit_desired_testing.update_desired_testing(new_desired_testing)
 
     def rerun_failed_tests(self):
-        # TODO
+        """Suboptimally, look for failing tests and submit Tasks directly.
+
+        This involves looping over all tests to find the right suite. We have to do this
+        because DesiredTesting doesn't quite support this.
+        """
+        test_results = test_schema.TestResults.lookupAll(commit=self)
+        for test_result in test_results:
+            if test_result.runs_failed:
+                # need to look up the suite for the test and commit
+                suites = test_schema.CommitTestDefinition.lookupUnique(commit=self).test_suites
+                for suite in suites.values():
+                    if test_result.test in suite.tests.values():
+                        engine_schema.TestRunTask.create(
+                            test_results=test_result, runs_desired=1, commit=self, suite=suite
+                        )
+                        break
+                else:
+                    logger.error(
+                        f"Could not find suite for test {test_result.test} "
+                        f"and commit {self.hash}"
+                    )
+
         logger.info(f"Rerunning failed tests for commit {self.hash}")
 
     def display_cell(self) -> cells.Cell:
