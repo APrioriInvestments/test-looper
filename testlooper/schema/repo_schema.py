@@ -301,19 +301,14 @@ class Commit:
         test_results = test_schema.TestResults.lookupAll(commit=self)
         for test_result in test_results:
             if test_result.runs_failed:
-                # need to look up the suite for the test and commit
-                suites = test_schema.CommitTestDefinition.lookupUnique(commit=self).test_suites
-                for suite in suites.values():
-                    if test_result.test in suite.tests.values():
-                        engine_schema.TestRunTask.create(
-                            test_results=test_result, runs_desired=1, commit=self, suite=suite
-                        )
-                        break
-                else:
-                    logger.error(
-                        f"Could not find suite for test {test_result.test} "
-                        f"and commit {self.hash}"
-                    )
+                # gotta bump the runs_desired manually too
+                test_result.runs_desired += 1
+                engine_schema.TestRunTask.create(
+                    test_results=test_result,
+                    runs_desired=1,
+                    commit=self,
+                    suite=test_result.suite,
+                )
 
         logger.info(f"Rerunning failed tests for commit {self.hash}")
 
@@ -334,15 +329,15 @@ class Commit:
             elif field == "Test Name":
                 return test.name
             elif field == "Status":
-                if not result.runs_pending:
+                if result.runs_pending:
+                    return "PENDING"
+                else:
                     if result.runs_errored:
                         return "ERROR"
                     elif result.runs_failed:
                         return "FAILED"
                     else:
                         return "PASSED"
-                else:
-                    return "PENDING"
             elif field == "Failure Rate":
                 return round(result.fail_rate(), 2)
             elif field == "Failure Count":
