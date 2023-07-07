@@ -3,7 +3,6 @@ import docker
 import json
 import logging
 import os
-import re
 import tempfile
 import time
 import yaml
@@ -12,13 +11,13 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from object_database.database_connection import DatabaseConnection
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Optional
 
 
 from testlooper.schema.engine_schema import StatusEvent
-from testlooper.schema.test_schema import StageResult, TestRunResult, TestFilter
+from testlooper.schema.test_schema import StageResult, TestRunResult
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
-from testlooper.utils import setup_logger
+from testlooper.utils import setup_logger, parse_test_filter
 from testlooper.vcs import Git
 
 # TODO
@@ -164,9 +163,11 @@ class LocalEngineAgent:
 
         Then generates TestResults for all touched tests, along with TestRunTasks,
         as appropriate.
+
+        TODO horrible horrible
         """
         tasks_to_run = []
-        with self.db.view():
+        with self.db.transaction():
             # wait for a commit test defintion, both are needed
             # cdts = [cdt for cdt in test_schema.CommitDesiredTesting.lookupAll()]
             for commit_desired_testing in test_schema.CommitDesiredTesting.lookupAll():
@@ -183,40 +184,43 @@ class LocalEngineAgent:
                         in (StatusEvent.COMPLETED, StatusEvent.FAILED, StatusEvent.TIMEDOUT)
                         for task in tasks
                     ):
-                        # work out what tests are affected.
+                        # TODO only run this 'make all test results for the commit' once.
                         suites = commit_test_definition.test_suites.values()
-                        test_name_to_suite = {}
-                        all_tests = set()
+                        all_test_results = set()
                         for suite in suites:
                             for test in suite.tests.values():
-                                test_name_to_suite[test.name] = suite
-                                all_tests.add(test)
+                                if (
+                                    tr := test_schema.TestResults.lookupUnique(
+                                        test_and_commit=(test, commit)
+                                    )
+                                ) is None:
+                                    tr = test_schema.TestResults(
+                                        test=test,
+                                        commit=commit,
+                                        suite=suite,
+                                        runs_desired=0,
+                                        results=[],
+                                    )
+                                all_test_results.add(tr)
 
                         # TODO horrible horrible
-                        tasks_to_run.append(
-                            (commit, desired_testing, test_name_to_suite, all_tests)
-                        )
+                        tasks_to_run.append((commit, desired_testing, all_test_results))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            for commit, desired_testing, test_name_to_suite, all_tests in tasks_to_run:
+            for commit, desired_testing, all_test_results in tasks_to_run:
                 test_filter = desired_testing.filter
 
                 future = executor.submit(
-                    self.parse_filter, test_filter, all_tests, test_name_to_suite
+                    parse_test_filter, self.db, test_filter, all_test_results
                 )
                 try:
                     # contemplate using concurrent.futures.as_completed then a post-processor.
-                    tests_to_run = future.result()
-                    if tests_to_run:
+                    test_results_to_run = future.result()
+                    if not test_results_to_run:
+                        self.logger.error(f"Filter {test_filter} matched no tests")
+                    if test_results_to_run:
                         with self.db.transaction():
-                            for test in tests_to_run:
-                                test_result = test_schema.TestResults.lookupUnique(
-                                    test_and_commit=(test, commit)
-                                )
-                                if test_result is None:
-                                    test_result = test_schema.TestResults(
-                                        test=test, commit=commit
-                                    )
+                            for test_result in test_results_to_run:
                                 diff = desired_testing.runs_desired - test_result.runs_desired
                                 if diff > 0:
                                     test_result.runs_desired = desired_testing.runs_desired
@@ -224,69 +228,15 @@ class LocalEngineAgent:
                                         test_results=test_result,
                                         runs_desired=diff,
                                         commit=commit,
-                                        suite=test_name_to_suite[test.name],
+                                        suite=test_result.suite,
                                     )
                                     self.logger.info(
-                                        f"Created TestRunTask for test {test.name} "
-                                        f"on commit {commit.hash}"
+                                        f"Created TestRunTask for test "
+                                        f"{test_result.test.name} on commit {commit.hash}"
                                     )
 
                 except Exception as e:
                     self.logger.error(f"Error generating test run tasks: {e}")
-
-    def parse_filter(
-        self,
-        test_filter: TestFilter,
-        all_tests: Set[test_schema.Test],
-        test_name_to_suite: Dict[str, test_schema.TestSuite],
-    ) -> Set[test_schema.Test]:
-        """Filter is on labels, paths, suites, and regex on name."""
-        filtered_tests = set()
-
-        # this is used in a thread so somewhat bad practice, but all the function does is
-        # lookups so can't be avoided
-        # (and we don't need our reactor to re-trigger on any of these variables).
-        with self.db.view():
-            # Filter by labels
-            if test_filter.labels == "Any" or test_filter.labels is None:
-                filtered_tests = all_tests
-            else:
-                for test in all_tests:
-                    for label in test_filter.labels:
-                        if test.label.startswith(label):
-                            filtered_tests.add(test)
-
-            # Filter by path prefixes
-            path_set = set()
-            if test_filter.path_prefixes is not None and test_filter.path_prefixes != "Any":
-                for test in filtered_tests:
-                    for path_prefix in test_filter.path_prefixes:
-                        if test.path.startswith(path_prefix):
-                            path_set.add(test)
-                filtered_tests &= path_set
-
-            # Filter by suites
-            suite_set = set()
-            if test_filter.suites is not None and test_filter.suites != "Any":
-                for test in filtered_tests:
-                    for suite_name in test_filter.suites:
-                        if test_name_to_suite[test.name].name == suite_name:
-                            suite_set.add(test)
-                filtered_tests &= suite_set
-
-            # Filter by regex
-            regex_set = set()
-            if test_filter.regex is not None:
-                for test in filtered_tests:
-                    if re.match(test_filter.regex, test.name):
-                        regex_set.add(test)
-
-                filtered_tests &= regex_set
-
-            if not filtered_tests:
-                self.logger.error(f"Filter {test_filter} matched no tests")
-
-        return filtered_tests
 
     def run_tests(self):
         """
@@ -492,6 +442,7 @@ class LocalEngineAgent:
                                             test=suite.tests[test_name],
                                             commit=commit,
                                             results=[],
+                                            suite=suite,
                                         )
 
                                     results_obj.add_test_run_result(test_run_result)
@@ -518,9 +469,7 @@ class LocalEngineAgent:
                                     )
                                     if not results_obj:
                                         results_obj = test_schema.TestResults(
-                                            test=test,
-                                            commit=commit,
-                                            results=[],
+                                            test=test, commit=commit, results=[], suite=suite
                                         )
 
                                     results_obj.add_test_run_result(failure)
@@ -536,6 +485,7 @@ class LocalEngineAgent:
                                             test=suite.tests[test_name],
                                             commit=commit,
                                             results=[],
+                                            suite=suite,
                                         )
                                     results_obj.add_test_run_result(failure)
 

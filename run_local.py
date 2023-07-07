@@ -179,7 +179,7 @@ def scan_repo(
     path_to_repo: str,
     path_to_tl_config=".testlooper/config.yaml",
     max_depth=5,
-    branch_prefix="will",  # FIXME a temp shim to make rerunning quicker
+    # branch_prefix="will",  # FIXME a temp shim to make rerunning quicker
 ) -> Git:
     """
     Scan a repo using the repo config path, listing all *local* branches down to
@@ -207,8 +207,11 @@ def scan_repo(
         _ = repo_schema.TestConfig(config=test_config, repo=repo)
 
     for branch_name in git_repo.list_branches():
-        if not branch_name.startswith(branch_prefix):
+        # TODO remove
+        if branch_name not in ("will-qol", "will-deliberately-failing-tests"):
             continue
+        # if not branch_name.startswith(branch_prefix):
+        #     continue
         # don't spam the POSTs
         time.sleep(0.1)
         commits = [

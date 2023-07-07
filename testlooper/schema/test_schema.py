@@ -14,8 +14,10 @@ from ..utils import (
     add_menu_bar,
     get_tl_link,
     setup_logger,
+    parse_test_filter_within_view,
 )
 from .schema_declarations import engine_schema, repo_schema, test_schema
+
 
 logger = setup_logger(__name__, level=logging.INFO)
 
@@ -97,14 +99,25 @@ class CommitDesiredTesting:
         )
 
         left_side = cells.Text(
-            "Options are labels (Tuple of strs), path_prefixes (Tuple of strs),\
-            suites (Tuple of strs), regex (str)"
+            "\n".join(
+                [
+                    "Please submit any of:",
+                    "a comma-separated list of labels (will prefix match),",
+                    "a comma-separated list of path prefixes,",
+                    "a comma-separated list of suite names (will exact match),",
+                    "a regex for the test name.",
+                    "Use Enter to submit, value, button below to show results of filter.",
+                ]
+            )
         )
 
-        suites = cells.Slot()
-        labels = cells.Slot()
-        path_prefixes = cells.Slot()
+        suites = cells.Slot("Any")
+        labels = cells.Slot("Any")
+        path_prefixes = cells.Slot("Any")
         regex = cells.Slot()
+        tests = cells.Slot([])
+        tests_shown = cells.Slot(False)
+        tests_run = cells.Slot(False)
 
         def onEsc(text_box, slot):
             text_box.currentText.set(slot.get())
@@ -125,12 +138,52 @@ class CommitDesiredTesting:
             box.onEnter = functools.partial(onEnter, slot)
             left_side += cells.Text(name + ":") >> box
 
+        def generate_filter():
+            kwargs = {}
+            for slot_name, slot in [
+                ("labels", labels),
+                ("path_prefixes", path_prefixes),
+                ("suites", suites),
+            ]:
+                arg = slot.get()
+                if arg and arg != "Any":
+                    arg = tuple(arg.split(","))
+                kwargs[slot_name] = arg
+            input_re = regex.get()
+            kwargs["regex"] = input_re if input_re else None
+            return TestFilter(**kwargs)
+
         def show_filter_results():
             """Show the results of the configured filter"""
-            # TODO ping off an engine instance, which dry-runs the test filter
             logger.info("Submitting filter to engine for dry-run")
+            generated_filter = generate_filter()
+            all_test_results = test_schema.TestResults.lookupAll(commit=self.commit)
+            tests_to_run = parse_test_filter_within_view(generated_filter, all_test_results)
+            tests.set(list(tests_to_run))
+            tests_shown.set(True)
+            if tests_run.get():
+                tests_run.set(False)
+
+        def run_tests():
+            logger.error("RUNNING TESTS")
+            for test_result in tests.get():
+                engine_schema.TestRunTask.create(
+                    test_results=test_result,
+                    runs_desired=1,
+                    commit=self.commit,
+                    suite=test_result.suite,
+                )
+            tests_run.set(True)
+
+        def show_run_button():
+            if tests_shown.get():
+                button = cells.Button("Run selected tests", run_tests)
+                return button
+            else:
+                return None
 
         left_side += cells.Button("Show Filter Results", show_filter_results)
+        left_side += cells.Subscribed(show_run_button)
 
         right_side = cells.Text("Current filter values: ", fontSize=H2_FONTSIZE)
         right_side += cells.Subscribed(lambda: cells.Text(labels.get()))
@@ -138,7 +191,16 @@ class CommitDesiredTesting:
         right_side += cells.Subscribed(lambda: cells.Text(suites.get()))
         right_side += cells.Subscribed(lambda: cells.Text(regex.get()))
 
+        right_side += cells.Subscribed(
+            lambda: cells.Text("Tests:\n" + "\n".join([x.test.name for x in tests.get()]))
+        )
         layout += cells.ResizablePanel(cells.Card(left_side), cells.Card(right_side))
+
+        layout += cells.Subscribed(
+            lambda: cells.Button("Back to Commit", get_tl_link(self.commit))
+            if tests_run.get()
+            else None
+        )
 
         # A split view with the text boxes on one side, and the slot values on the other.
         # For now that will suffice
@@ -481,6 +543,7 @@ class TestResults:
     test = Indexed(test_schema.Test)
     commit = Indexed(repo_schema.Commit)
     test_and_commit = Index("test", "commit")  # unique
+    suite = test_schema.TestSuite
 
     runs_desired = int
 
