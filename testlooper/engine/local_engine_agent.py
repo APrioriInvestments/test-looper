@@ -3,6 +3,7 @@ import docker
 import json
 import logging
 import os
+import subprocess
 import tempfile
 import time
 import yaml
@@ -93,6 +94,8 @@ class LocalEngineAgent:
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             for task in tasks:
                 try:
+                    # this is completely wrong, as the thread runs outside the
+                    # transaction
                     with self.db.transaction():
                         timeout_seconds = task.timeout_seconds
                         if task.status[0] is StatusEvent.CREATED:
@@ -121,6 +124,12 @@ class LocalEngineAgent:
             engine_schema.CommitTestDefinitionGenerationTask,
             self.generate_commit_test_definition,
         )
+
+    def generate_test_configs(self):
+        self.run_task(engine_schema.GenerateTestConfigTask, self.generate_test_config)
+
+    def build_docker_images(self):
+        self.run_task(engine_schema.BuildDockerImageTask, self.build_docker_image)
 
     def generate_commit_test_definition(self, task):
         """
@@ -499,38 +508,20 @@ class LocalEngineAgent:
                                 continue
 
     def generate_test_plan(self, task):
-        """Parse the task config, check out the repo, and run the specified command."""
+        """Check out the repo, and run the specified command from the config.
+
+        TODO block on the docker build, if ongoing.
+        """
 
         with self.db.view():
             status, timestamp = task.status
             commit = task.commit
             commit_hash = commit.hash
-            test_config_str = commit.test_config.config
+            command = commit.test_config.command
+            env_vars = commit.test_config.variables
+            image_name = commit.test_config.image_name
 
         if not self._start_task(task, status, self.clock.time()):
-            return
-
-        try:
-            test_config = yaml.safe_load(test_config_str)
-        except Exception as e:
-            self.logger.exception("Failed to parse test configuration")
-            self._test_plan_task_failed(task, f"Failed to parse test configuration: {str(e)}")
-            return
-
-        # Data-validation for test config
-        required_keys = ["version", "image", "command"]
-        for key in required_keys:
-            if key not in test_config:
-                self._config_missing_data(task, [key])
-                return
-        if "docker" not in test_config["image"]:
-            self._config_missing_data(task, ["image", "docker"])
-            return
-
-        if "image" not in test_config["image"]["docker"]:
-            self._test_plan_task_failed(
-                task, "No docker image specified (dockerfiles are not yet supported)"
-            )
             return
 
         # Run test-plan generation in a Docker container.
@@ -542,14 +533,13 @@ class LocalEngineAgent:
             # check out the necessary commit
             self.source_control_store.create_worktree_and_reset_to_commit(commit_hash, tmpdir)
             test_plan_output = os.path.join(mount_dir, test_plan_file)
-            command = test_config["command"]
-            image_name = test_config["image"]["docker"]["image"]
-            _ = test_config["image"]["docker"].get("with_docker", False)  # not currently used
+            # get the image name from the config, which is either the image provided, or the
+            # image given from the docker build
             env = os.environ.copy()
             env["TEST_PLAN_OUTPUT"] = test_plan_output
             env["REPO_ROOT"] = tmpdir
-            if "variables" in test_config:
-                for key, value in test_config["variables"].items():
+            if env_vars:
+                for key, value in env_vars.items():
                     env[key] = value
             # initialise the docker client, bind the tmpdir to let docker access it, run.
             # this requires docker to have access to /tmp/
@@ -688,6 +678,83 @@ class LocalEngineAgent:
                 self._test_suite_task_failed(task, f"Failed to commit result to ODB: {str(e)}")
                 return
 
+    def generate_test_config(self, task):
+        """When a Commit comes in, we read the commit's config file, and make a new
+        TestConfig object and parse if we need to. Generate
+        BuildDockerImageTasks if needed."""
+        with self.db.transaction():
+            task.started(self.clock.time())
+            commit = task.commit
+            path = task.config_path
+            commit_hash = commit.hash
+
+        # read the config file.
+        config_file_contents = self.source_control_store.get_file_contents(commit_hash, path)
+
+        assert config_file_contents is not None
+
+        with self.db.view():
+            config = repo_schema.TestConfig.lookupUnique(config_str=config_file_contents)
+
+        if config is None:
+            with self.db.transaction():
+                config = repo_schema.TestConfig(
+                    config_str=config_file_contents, repo=commit.repo
+                )
+                config.parse_config()
+                if docker_config := config.image.get("docker"):
+                    if docker_config.get("dockerfile"):
+                        _ = engine_schema.BuildDockerImageTask.create(
+                            commit=commit,
+                            environment_name="TODO",
+                            dockerfile=docker_config["dockerfile"],
+                            image=config.name,
+                        )
+                        config.image_name = (
+                            config.name
+                        )  # for now, if we are building new docker images, use the repo name.
+                    else:
+                        config.image_name = docker_config["image"]
+                else:
+                    raise ValueError("No docker image specified in config.")
+
+        with self.db.transaction():
+            commit.test_config = config
+            engine_schema.TestPlanGenerationTask.create(commit=commit)
+            task.completed(self.clock.time())
+
+    def build_docker_image(self, task):
+        """Check if we've built an image like this already. If not, build it.
+
+        First things first - build it every time.
+        """
+        with self.db.transaction():
+            task.started(self.clock.time())
+
+        with self.db.view():
+            commit = task.commit
+            commit_hash = commit.hash
+            dockerfile = task.dockerfile
+            image_name = task.image
+            # what's the build context?
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.source_control_store.create_worktree_and_reset_to_commit(commit_hash, tmpdir)
+            output = subprocess.run(
+                ["docker", "build", "-t", image_name, "-f", dockerfile, tmpdir],
+                capture_output=True,
+            )  # TODO check=True
+            if output.returncode != 0:
+                print(output.stderr)
+                print(output.stdout)
+                raise RuntimeError(f"Failed to build docker image for task {task}")
+
+        with self.db.transaction():
+            task.completed(self.clock.time())
+
+        # CHECKOUT THE COMMIT. RUN THE BUILD
+
+        pass
+
     def _start_task(self, task, status, start_time) -> bool:
         if status is not StatusEvent.CREATED:
             if isinstance(task, engine_schema.TestPlanGenerationTask):
@@ -748,11 +815,24 @@ class LocalEngineAgent:
             )
             task.failed(self.clock.time())
 
+    def _build_docker_image_task_failed(self, task, error):
+        with self.db.transaction():
+            engine_schema.BuildDockerImageResult(
+                task=task,
+                error=error,
+                commit=task.commit,
+                image="",
+                environment_name="",
+            )
+            task.failed(self.clock.time())
+
     def _fail_task(self, task, error):
         if isinstance(task, engine_schema.TestPlanGenerationTask):
             self._test_plan_task_failed(task, error)
         elif isinstance(task, engine_schema.TestSuiteGenerationTask):
             self._test_suite_task_failed(task, error)
+        elif isinstance(task, engine_schema.BuildDockerImageTask):
+            self._build_docker_image_task_failed(task, error)
 
     def _config_missing_data(self, task, missing_values):
         missing = ".".join(missing_values)

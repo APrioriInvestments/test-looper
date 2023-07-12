@@ -13,7 +13,7 @@ from gevent.pywsgi import WSGIServer
 from object_database import ServiceBase
 from testlooper.schema.test_schema import DesiredTesting, TestFilter
 
-from testlooper.utils import setup_logger
+from testlooper.utils import setup_logger, filter_keys
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 
 from typing import List, Dict
@@ -58,10 +58,6 @@ DEFAULT_DESIRED_TESTING = DesiredTesting(
 )
 
 
-def filter_keys(d, cls):
-    return {k: v for k, v in d.items() if k in cls.__annotations__}
-
-
 class GitWatcherService(ServiceBase):
     """Listens for POST requests, generates ODB objects (and maybe Tasks)"""
 
@@ -72,6 +68,7 @@ class GitWatcherService(ServiceBase):
         self.app.add_url_rule(
             "/git_updater", view_func=self.catch_git_change, methods=["POST"]
         )
+        self.config_path = ".testlooper/config.yaml"  # FIXME this is not where this should be
         # self.app.errorhandler(WebServiceError)(self.handleWebServiceError)
 
     def doWork(self, shouldStop):
@@ -157,19 +154,18 @@ class GitWatcherService(ServiceBase):
                 for payload_commit in payload.commits:
                     commit = repo_schema.Commit.lookupUnique(hash=payload_commit.id)
                     if commit is None:
-                        # TODO the test config can, in theory, change. Should be added with a
-                        # Task. The git watcher should probably not be making said Tasks.
-                        test_config = repo_schema.TestConfig.lookupUnique(repo=repo)
-
                         commit = repo_schema.Commit(
                             hash=payload_commit.id,
                             repo=repo,
                             commit_text=payload_commit.message,
                             author=payload_commit.author_and_email,
-                            test_config=test_config,
+                            test_config=None,
                         )
                         new_commits.append(commit)
-                        _ = engine_schema.TestPlanGenerationTask.create(commit=commit)
+
+                        _ = engine_schema.GenerateTestConfigTask.create(
+                            commit=commit, config_path=self.config_path
+                        )
                         self._logger.info(f"Created commit {commit.hash}")
                         if prev_commit is not None:
                             commit.set_parents([prev_commit])

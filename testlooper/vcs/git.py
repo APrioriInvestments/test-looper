@@ -469,6 +469,13 @@ class Git:
             ):
                 raise Exception("Failed to checkout revision %s" % commit_hash)
 
+    def get_file_contents(self, commit, path):
+        with self.git_repo_lock:
+            try:
+                return self._subprocess_check_output(["git", "show", "%s:%s" % (commit, path)])
+            except Exception:
+                return None
+
     def _write_file(self, name, text):
         with open(os.path.join(self.path_to_repo, name), "w") as f:
             f.write(text)
@@ -606,13 +613,6 @@ class Git:
                     ["git", "--no-pager", "log", "-n", "1", "--format=format:%H"]
                 )
                 return commandResult.strip()
-            except Exception:
-                return None
-
-    def _get_file_contents(self, commit, path):
-        with self.git_repo_lock:
-            try:
-                return self._subprocess_check_output(["git", "show", "%s:%s" % (commit, path)])
             except Exception:
                 return None
 

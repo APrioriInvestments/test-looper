@@ -23,6 +23,7 @@ Entrypoint is still this file that has to be somewhere in the repo:
 `.testlooper/config.yaml`:
 ```
 version: X.Y
+name: the repo name
 os: linux
 variables:
     ENV_VAR_NAME: value
@@ -37,7 +38,7 @@ image:
         with-docker: bool  # Whether we should mount the docker service socket.
 
 
-generate-test-plan: |
+command: |
     # Some bash code to run that produces the actual test-suite definitions and environments.
     # We can assume we have defined the following environment variables:
     #   - REPO_ROOT: path to the current checked out repo, which will also be the CWD
@@ -46,6 +47,7 @@ generate-test-plan: |
 Example:
 ```
 version: 1.0
+name: testlooper
 image:
      docker:
         dockerfile: .testlooper/environments/plan-generation/Dockerfile

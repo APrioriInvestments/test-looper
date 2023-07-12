@@ -171,3 +171,7 @@ def parse_test_filter_within_view(test_filter, all_test_results):
         filtered_tests &= regex_set
 
     return filtered_tests
+
+
+def filter_keys(d, cls):
+    return {k: v for k, v in d.items() if k in cls.__annotations__}

@@ -3,8 +3,8 @@ name: testlooper
 primary-branch: will-qol
 image:
      docker:
-        # dockerfile: .testlooper/environments/plan-generation/Dockerfile
-       image: testlooper:latest
+       dockerfile: .testlooper/environments/Dockerfile.setup
+       # image: testlooper:latest
        with-docker: true
 
 variables:

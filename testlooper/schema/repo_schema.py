@@ -4,8 +4,10 @@ from collections import deque, defaultdict
 from datetime import datetime
 import functools
 import object_database.web.cells as cells
+import yaml
+
 from object_database import Index, Indexed
-from typed_python import Alternative, ConstDict, OneOf
+from typed_python import Alternative, ConstDict, Dict, OneOf
 from typing import List
 
 from .schema_declarations import repo_schema, ui_schema, test_schema, engine_schema
@@ -194,14 +196,23 @@ class Repo:
 class TestConfig:
     """Contains the text of the .testlooper/config.yaml for one or more commits."""
 
-    config = Indexed(str)
+    config_str = Indexed(str)
     repo = Indexed(Repo)
+    # below fields all start as None until set.
+    # needs_docker_build = OneOf(None, bool)
+    image_name = OneOf(None, str)
+    version = OneOf(None, str)
+    name = OneOf(None, str)
+    os = OneOf(None, str)
+    variables = OneOf(None, Dict(str, str))
+    image = OneOf(None, Dict(str, Dict(str, OneOf(str, bool))))
+    command = OneOf(None, str)
 
     def display_cell(self) -> cells.Cell:
         """Simply display the yaml text."""
 
         layout = cells.Padding(bottom=20) * cells.Text("Test Config", fontSize=H1_FONTSIZE)
-        layout += cells.Scrollable(cells.Code(self.config))
+        layout += cells.Scrollable(cells.Code(self.config_str))
         return add_menu_bar(
             cells.HCenter(layout),
             {
@@ -209,6 +220,29 @@ class TestConfig:
                 self.repo.name: get_tl_link(self.repo),
             },
         )
+
+    def parse_config(self):
+        """Parse and validate the yaml, populate schema fields."""
+        test_config = yaml.safe_load(self.config_str)
+
+        # see docs/Repo_Configuration_Spec.md
+        required_keys = ["version", "name", "image", "command"]
+        for key in required_keys:
+            if key not in test_config:
+                raise ValueError(f"Missing required key {key} in config.yaml")
+        for key in ["version", "name", "os", "variables", "image", "command"]:
+            try:
+                if type(test_config[key]) is not dict:
+                    val = str(test_config[key])
+                else:
+                    val = test_config[key]
+                setattr(self, key, val)
+
+            except KeyError:
+                continue
+
+        if self.image.get("aws-ami"):
+            raise NotImplementedError("AWS AMI images not yet supported")
 
 
 @repo_schema.define
@@ -219,8 +253,8 @@ class Commit:
 
     commit_text = str
     author = str
-
-    test_config = repo_schema.TestConfig
+    # this is set by GenerateTestConfigTask
+    test_config = OneOf(None, repo_schema.TestConfig)
 
     @property
     def parents(self):

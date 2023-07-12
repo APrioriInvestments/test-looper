@@ -35,6 +35,8 @@ class LocalEngineService(ServiceBase):
             self.db, source_control_store=git_repo, artifact_store=None
         )
 
+        self.registerReactor(Reactor(self.db, self.agent.generate_test_configs))
+        self.registerReactor(Reactor(self.db, self.agent.build_docker_images))
         self.registerReactor(Reactor(self.db, self.agent.generate_test_plans))
         self.registerReactor(Reactor(self.db, self.agent.generate_test_suites))
         self.registerReactor(Reactor(self.db, self.agent.run_tests))

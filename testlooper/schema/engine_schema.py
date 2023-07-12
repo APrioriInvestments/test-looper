@@ -138,19 +138,19 @@ class TestPlanGenerationResult(ResultBase):
 
 
 @engine_schema.define
-class BuildDockerImageTask:
+class BuildDockerImageTask(TaskBase):
     commit = repo_schema.Commit
     environment_name = str
     dockerfile = str  # path to Dockerfile or its directory
     image = str  # image name and/or tag
-    status = Status
 
 
 @engine_schema.define
-class BuildDockerImageResult:
+class BuildDockerImageResult(ResultBase):
     commit = repo_schema.Commit
     environment_name = str
     image = str
+    task = Indexed(engine_schema.BuildDockerImageTask)
 
 
 @engine_schema.define
@@ -188,6 +188,13 @@ class TestRunTask(TaskBase):
 class CommitTestDefinitionGenerationTask(TaskBase):
     commit = Indexed(repo_schema.Commit)
     test_plan = test_schema.TestPlan
+
+
+@engine_schema.define
+class GenerateTestConfigTask(TaskBase):
+    # test_config = repo_schema.TestConfig
+    commit = repo_schema.Commit
+    config_path = str
 
 
 @engine_schema.define

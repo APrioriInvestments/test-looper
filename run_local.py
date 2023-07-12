@@ -204,7 +204,7 @@ def scan_repo(
         # spin up the initial stuff
         repo_config = RepoConfig.Local(path=path_to_repo)
         repo = repo_schema.Repo(name=repo_name, config=repo_config)
-        _ = repo_schema.TestConfig(config=test_config, repo=repo)
+        # _ = repo_schema.TestConfig(config_str=test_config, repo=repo)
 
     for branch_name in git_repo.list_branches():
         # TODO remove
