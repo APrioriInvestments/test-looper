@@ -596,6 +596,18 @@ class TestResults:
             # TODO: log an error
             pass
 
+    def clear_results(self):
+        """Delete all runs and zero the trackers."""
+        self.results = []
+        self.runs_desired = 0
+        self.runs_completed = 0
+        self.runs_passed = 0
+        self.runs_xpassed = 0
+        self.runs_failed = 0
+        self.runs_xfailed = 0
+        self.runs_errored = 0
+        self.runs_skipped = 0
+
     def display_cell(self):
         layout = cells.Padding(bottom=20) * cells.Text(
             f"Results for {self.test.name} on commit {self.commit.hash}", fontSize=H1_FONTSIZE

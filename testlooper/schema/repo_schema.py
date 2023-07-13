@@ -287,7 +287,8 @@ class Commit:
     def clear_test_results(self):
         # TODO
         logger.info(f"Clearing Test Results for commit {self.hash}")
-        pass
+        for result in test_schema.TestResults.lookupAll(commit=self):
+            result.clear_results()
 
     def get_closest_branch(self, max_depth=100):
         """Returns the branch with top_commit closest to this commit (or None if not found)"""

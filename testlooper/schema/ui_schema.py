@@ -72,16 +72,29 @@ class BranchView:
         def rendererFun(commit, field):
             if field == "Hash":
                 return cells.Clickable(commit.hash, get_tl_link(commit))
-            elif field == "Testing":
-                return "False"  # TODO
+            elif field == "Autotesting":
+                if (
+                    cdt := test_schema.CommitDesiredTesting.lookupUnique(commit=commit)
+                ) is None:
+                    return "False"
+                else:
+                    return cdt.desired_testing.runs_desired > 0
             elif field == "Results Summary":
-                return None  # TODO
+                results = test_schema.TestResults.lookupAll(commit=commit)
+                completed = 0
+                failed = 0
+                for result in results:
+                    if result.runs_completed:
+                        completed += 1
+                    if result.runs_failed:
+                        failed += 1
+                return f"{failed} / {completed} failed, {len(results)} available"
             elif field == "Commit Summary":
                 return commit.commit_text
             elif field == "Author":
                 return commit.author
             elif field == "Clear":
-                return cells.Button("CLEAR", commit.clear_test_results)  # TODO
+                return cells.Button("CLEAR", commit.clear_test_results)
             else:
                 return f"Unexpected Field {field}"
 
@@ -103,7 +116,7 @@ class BranchView:
         layout += cells.Table(
             colFun=lambda: [
                 "Hash",
-                "Testing",
+                "Autotesting",
                 "Results Summary",
                 "Commit Summary",
                 "Author",
