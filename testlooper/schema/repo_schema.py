@@ -362,17 +362,19 @@ class Commit:
             elif field == "Suite":
                 return suite.name
             elif field == "Test Name":
-                return test.name
+                return cells.Clickable(test.name, get_tl_link(test))
             elif field == "Status":
+                text = ""
                 if result.runs_pending:
-                    return "PENDING"
+                    text = "PENDING"
                 else:
                     if result.runs_errored:
-                        return "ERROR"
+                        text = "ERROR"
                     elif result.runs_failed:
-                        return "FAILED"
+                        text = "FAILED"
                     else:
-                        return "PASSED"
+                        text = "PASSED"
+                return cells.Clickable(text, get_tl_link(result))
             elif field == "Failure Rate":
                 return round(result.fail_rate(), 2)
             elif field == "Failure Count":
@@ -570,14 +572,20 @@ class Branch:
                             )
                             break
                 else:
-                    test_rows.append(
-                        TestRow(
-                            test_name=test_name,
-                            suite_name=suite,
-                            env_name=env,
-                            test_results=ConstDict(str, TestResults)(commit_to_result_dict),
+                    try:
+                        test_rows.append(
+                            TestRow(
+                                test_name=test_name,
+                                suite_name=suite,
+                                env_name=env,
+                                test_results=ConstDict(str, TestResults)(
+                                    commit_to_result_dict
+                                ),
+                            )
                         )
-                    )
+                    except TypeError:
+                        # occurs if the test matrix is partially initialised
+                        continue
 
             return test_rows
 
@@ -611,12 +619,20 @@ class Branch:
                         get_tl_link(result),
                     )
 
+        headers = ["Test Name", "Suite Name", "Environment Name"]
+
+        def get_clickable(x):
+            if x in headers:
+                return x
+            else:
+                return cells.Clickable(x, get_tl_link(repo_schema.Commit.lookupUnique(hash=x)))
+
         table = cells.Scrollable(
             cells.Table(
-                colFun=lambda: ["Test Name", "Suite Name", "Environment Name"]
+                colFun=lambda: headers
                 + [x.hash for x in get_most_recent_commits(leftmost_commit.get(), N=10)],
                 rowFun=row_fun,
-                headerFun=lambda x: x,
+                headerFun=lambda x: get_clickable(x),
                 rendererFun=renderer_fun,
                 sortColumn=0,
                 maxRowsPerPage=250,
