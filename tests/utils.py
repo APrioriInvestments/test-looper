@@ -5,12 +5,18 @@ Utilities for running the tests.
 import tempfile
 import object_database.web.cells as cells
 import pytest
-from object_database import connect
+import requests
+import time
+from object_database import connect, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
+from object_database.service_manager.ServiceManager import ServiceManager
 from object_database.util import genToken
+from testlooper.engine.git_watcher_service import GitWatcherService
 
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import repo_schema, engine_schema, test_schema
+
+GIT_WATCHER_PORT = 1234
 
 
 @pytest.fixture(scope="module")
@@ -28,6 +34,7 @@ def testlooper_db():
 
             database = connect("localhost", odb_port, token, retry=True)
             database.subscribeToSchema(
+                service_schema,
                 repo_schema,
                 test_schema,
                 engine_schema,
@@ -38,6 +45,35 @@ def testlooper_db():
             if server is not None:
                 server.terminate()
                 server.wait()
+
+
+@pytest.fixture(scope="module")
+def git_service(testlooper_db):
+    max_retries = 10
+    with testlooper_db.transaction():
+        git_service = ServiceManager.createOrUpdateService(
+            GitWatcherService, "GitWatcherService", target_count=0
+        )
+
+    GitWatcherService.configure(
+        testlooper_db, git_service, hostname="localhost", port=GIT_WATCHER_PORT
+    )
+
+    with testlooper_db.transaction():
+        ServiceManager.startService("GitWatcherService", 1)
+
+    # wait for the service to start by pinging it a few times.
+
+    for _ in range(max_retries):
+        try:
+            resp = requests.post(f"http://localhost:{GIT_WATCHER_PORT}/git_updater", json={})
+            if resp.status_code == 400:
+                break
+        except requests.exceptions.ConnectionError:
+            time.sleep(0.1)
+            pass
+
+    yield git_service
 
 
 def generate_branch_structure(db, branches):

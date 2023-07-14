@@ -59,7 +59,11 @@ DEFAULT_DESIRED_TESTING = DesiredTesting(
 
 
 class GitWatcherService(ServiceBase):
-    """Listens for POST requests, generates ODB objects (and maybe Tasks)"""
+    """Listens for POST requests, generates ODB objects (and maybe Tasks).
+
+    NB: the Github POST request contains at most twenty commits. So if we push more than that,
+    we'll fail to pick up the oldest ones.
+    """
 
     def initialize(self):
         self.db.subscribeToSchema(engine_schema, repo_schema, test_schema)
@@ -96,32 +100,7 @@ class GitWatcherService(ServiceBase):
         return cells.Card(cells.Text("Git Watcher Service"))
 
     def catch_git_change(self):
-        """Called when we get a POST request. For now, we only get requests on each commit.
-
-        Repo Objects we need to create:
-        - Commit
-        - Branch
-        - commit parents
-        -
-        Objects that should probably be created in advance:
-        - TestConfig
-        - Repo
-
-
-        How do we handle rebases? probably by updating the parents(). We
-        know two commits on the same Branch
-        can't have the same parent.
-        the commit object has:
-        - hash
-        - repo
-        - commit_text
-        - author
-        - test_config
-        - parents
-
-
-        how do i get the test config? probably via Task
-        """
+        """Called when we get a POST request. For now, we only get requests on each commit."""
         self._logger.warning("Git change caught!")
         data = request.get_json()
         if not data:
@@ -214,6 +193,9 @@ class GitWatcherService(ServiceBase):
             message = "ODB updated successfully"
             self._logger.info(message)
             return {"message": message}, 201
+        except ValueError as e:
+            self._logger.exception(e)
+            return {"message": "Bad Request", "details": str(e)}, 400
         except Exception as e:
             self._logger.exception(e)
             return {"message": "Internal Server Error", "details": str(e)}, 500
