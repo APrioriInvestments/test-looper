@@ -76,6 +76,15 @@ def git_service(testlooper_db):
     yield git_service
 
 
+@pytest.fixture(scope="function")
+def make_and_clear_repo(testlooper_db):
+    """Makes a demo repo, then destroys it after the test."""
+    branches = {"dev": ["a", "b", "c"], "feature": ["a", "d", "e"]}
+    generate_branch_structure(testlooper_db, branches)
+    yield
+    clear_branch_structure(testlooper_db)
+
+
 def generate_branch_structure(db, branches):
     """
     Generate a repo with a few branches and commits.

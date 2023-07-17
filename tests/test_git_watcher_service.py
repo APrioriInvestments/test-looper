@@ -1,12 +1,13 @@
 """Tests for the GitWatcherService class."""
 import requests
 
-from testlooper.schema.schema import engine_schema
-from .utils import git_service, testlooper_db
+from testlooper.schema.schema import engine_schema, repo_schema
+from .utils import git_service, testlooper_db, make_and_clear_repo
 
 
 git_service = git_service  # required by flake8
 testlooper_db = testlooper_db
+make_and_clear_repo = make_and_clear_repo
 
 
 def get_url(db):
@@ -32,9 +33,10 @@ def test_git_watcher_fields_missing(git_service, testlooper_db):
     pass
 
 
-def test_git_watcher_incorrect_repo(git_service, testlooper_db):
+def test_git_watcher_incorrect_repo(git_service, testlooper_db, make_and_clear_repo):
     """If the repository name doesn't match any of the repos TL knows about,
-    reject."""
+    reject the request, don't add the repo or the commits."""
+
     with testlooper_db.view():
         assert (gwc := engine_schema.GitWatcherConfig.lookupAny()) is not None
         port = gwc.port
@@ -66,6 +68,8 @@ def test_git_watcher_incorrect_repo(git_service, testlooper_db):
 
         resp = requests.post(f"http://{hostname}:{port}/git_updater", json=data)
         assert resp.status_code == 400
+        assert repo_schema.Repo.lookupAny(name="different_repo") is None
+        assert repo_schema.Commit.lookupUnique(hash="1234567") is None
 
 
 def test_git_watcher_empty_commits(git_service, testlooper_db):
