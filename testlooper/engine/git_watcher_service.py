@@ -161,7 +161,7 @@ class GitWatcherService(ServiceBase):
                     branch = repo_schema.Branch(
                         repo=repo, name=branch_name, top_commit=top_commit
                     )
-                    self._logger.info(f"Created branch {branch.name}")
+                    self._logger.info(f"Created branch {branch.name} on repo {repo.name}")
 
                     # generate a DesiredTesting (temporarily, this is 1
                     # runs_desired for everyone).
