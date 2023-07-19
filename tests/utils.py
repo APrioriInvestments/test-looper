@@ -11,12 +11,73 @@ from object_database import connect, service_schema
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
 from object_database.util import genToken
-from testlooper.engine.git_watcher_service import GitWatcherService
 
+from testlooper.engine.git_watcher_service import GitWatcherService
+from testlooper.engine.local_engine_service import LocalEngineService
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import repo_schema, engine_schema, test_schema
 
 GIT_WATCHER_PORT = 1234
+
+
+TEST_PLAN = """
+version: 1
+environments:
+    # linux docker container for running our pytest unit-tests
+    linux-pytest:
+        image:
+            docker:
+                dockerfile: .testlooper/environments/linux-pytest/Dockerfile
+        variables:
+            PYTHONPATH: ${REPO_ROOT}
+            TP_COMPILER_CACHE: /tp_compiler_cache
+            IS_TESTLOOPER: true
+        min-ram-gb: 10
+        custom-setup: |
+            python -m pip install --editable .
+
+    # native linux image necessary for running unit-tests that need to boot docker containers.
+    linux-native:
+        image:
+            base_ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
+        min-ram-gb: 10
+        custom-setup: |
+            sudo apt-get --yes install python3.8-venv
+            make install  # install pinned dependencies
+builds:
+    # skip
+
+suites:
+    pytest:
+        kind: unit
+        environment: linux-pytest
+        dependencies:
+        timeout:
+        list-tests: |
+            .testlooper/collect-pytest-tests.sh -m 'not docker'
+        run-tests: |
+            .testlooper/run-pytest-tests.sh
+
+    pytest-docker:
+        kind: unit
+        environment: linux-native
+        dependencies:
+        timeout:
+        list-tests: |
+            .testlooper/collect-pytest-tests.sh -m 'docker'
+        run-tests: |
+            .testlooper/run-pytest-tests.sh
+
+    matlab:
+        kind: unit
+        environment: linux-native
+        dependencies:
+        timeout:
+        list-tests: |
+            .testlooper/collect-matlab-tests.sh
+        run-tests: |
+            .testlooper/run-matlab-tests.sh
+"""
 
 
 @pytest.fixture(scope="module")
@@ -74,6 +135,16 @@ def git_service(testlooper_db):
             pass
 
     yield git_service
+
+
+@pytest.fixture(scope="module")
+def local_engine_service(testlooper_db):
+    repo_path = "/tmp/test_repo"
+    with testlooper_db.transaction():
+        _ = engine_schema.LocalEngineConfig(path_to_git_repo=repo_path)
+        _ = ServiceManager.createOrUpdateService(
+            LocalEngineService, "LocalEngineService", target_count=1
+        )
 
 
 @pytest.fixture(scope="function")

@@ -141,8 +141,15 @@ class LocalEngineAgent:
             status, timestamp = task.status
             commit = task.commit
             test_plan = task.test_plan
+            test_plan_commit = test_plan.commit
 
         if not self._start_task(task, status, self.clock.time()):
+            return
+
+        if not test_plan_commit == commit:
+            self.logger.error("Test plan commit must match task commit")
+            with self.db.transaction():
+                task.failed(self.clock.time())
             return
 
         if test_plan is None:
@@ -151,16 +158,20 @@ class LocalEngineAgent:
                 task.failed(self.clock.time())
             return
 
-        with self.db.transaction():
-            if not test_schema.CommitTestDefinition.lookupUnique(commit=commit):
-                commit_definition = test_schema.CommitTestDefinition(commit=commit)
-                self.logger.info(f"Created CommitTestDefinition for commit {commit.hash}")
-                commit_definition.set_test_plan(test_plan)
-                task.completed(self.clock.time())
-            else:
-                self.logger.error(
-                    f"CommitTestDefinition already exists for commit {commit.hash}"
-                )
+        try:
+            with self.db.transaction():
+                if not test_schema.CommitTestDefinition.lookupUnique(commit=commit):
+                    commit_definition = test_schema.CommitTestDefinition(commit=commit)
+                    self.logger.info(f"Created CommitTestDefinition for commit {commit.hash}")
+                    commit_definition.set_test_plan(test_plan)
+                    task.completed(self.clock.time())
+                else:
+                    self.logger.error(
+                        f"CommitTestDefinition already exists for commit {commit.hash}"
+                    )
+                    task.failed(self.clock.time())
+        except Exception:
+            with self.db.transaction():
                 task.failed(self.clock.time())
 
     def generate_test_run_tasks(self):

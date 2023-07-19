@@ -2,7 +2,7 @@
 import requests
 
 from testlooper.schema.schema import engine_schema, repo_schema
-from .utils import git_service, testlooper_db, make_and_clear_repo
+from ..utils import git_service, testlooper_db, make_and_clear_repo
 
 
 git_service = git_service  # required by flake8
@@ -48,7 +48,7 @@ def test_git_watcher_incorrect_repo(git_service, testlooper_db, make_and_clear_r
         "ref": "refs/heads/dev",
         "before": "abcdefg",
         "after": "1234567",
-        "created": True,
+        "created": False,
         "deleted": False,
         "repository": {
             "name": "different_repo",
@@ -146,10 +146,10 @@ def test_git_watcher_commits_already_found(git_service, testlooper_db, make_and_
         hostname = gwc.hostname
 
     data = {
-        "ref": "refs/heads/new-dev",
+        "ref": "refs/heads/dev",
         "before": "e",
         "after": "g",
-        "created": True,
+        "created": False,
         "deleted": False,
         "repository": {
             "name": "test_repo",
@@ -190,16 +190,51 @@ def test_git_watcher_commits_already_found(git_service, testlooper_db, make_and_
         # TODO handle the deleted 'b' commit.
 
 
-def test_git_watcher_branch_created(git_service, testlooper_db):
+def test_git_watcher_branch_created(git_service, testlooper_db, make_and_clear_repo):
     """Test we can create a new Branch with a POST."""
-    pass
+    with testlooper_db.view():
+        assert (gwc := engine_schema.GitWatcherConfig.lookupAny()) is not None
+        port = gwc.port
+        hostname = gwc.hostname
+
+    data = {
+        "ref": "refs/heads/new-dev",
+        "before": "e",
+        "after": "g",
+        "created": True,
+        "deleted": False,
+        "repository": {
+            "name": "test_repo",
+            "url": "http://different_repo.com",
+        },
+        "pusher": {
+            "name": "Gary",
+            "email": "Gary@garymail.com",
+        },
+        "commits": [
+            {
+                "id": "f",
+                "message": "commit message",
+                "url": "http://commit_url.com",
+                "author": {"name": "Gary", "email": "gary@garymail.com"},
+            },
+            {
+                "id": "g",
+                "message": "commit message",
+                "url": "http://commit_url.com",
+                "author": {"name": "Gary", "email": "gary@garymail.com"},
+            },
+        ],
+    }
+
+    resp = requests.post(f"http://{hostname}:{port}/git_updater", json=data)
+    assert resp.status_code == 201
+
+    with testlooper_db.view():
+        assert len(repo_schema.Commit.lookupAll()) == 7
+        assert len(repo_schema.Branch.lookupAll()) == 3
 
 
-def test_git_watcher_branch_deleted(git_service, testlooper_db):
-    """Test we can delete a branch with a POST."""
-    pass
-
-
-def test_git_watcher_linear_commits(git_service, testlooper_db):
-    """Test we can handle normal operation - a linear series of commits."""
-    pass
+# def test_git_watcher_branch_deleted(git_service, testlooper_db):
+#     """Test we can delete a branch with a POST."""
+#     pass
