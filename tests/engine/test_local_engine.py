@@ -23,6 +23,8 @@ from ..utils import (  # noqa
     local_engine_service,
     testlooper_db,
     make_and_clear_repo,
+    generate_repo,
+    clear_tasks,
     TEST_PLAN,
 )
 
@@ -64,10 +66,12 @@ def test_config_reactor(testlooper_db, local_engine_agent):
 
 #  ############## generate_test_configs ###############
 def test_generate_test_configs_need_dockerfile(
-    local_engine_agent, test_config_reactor, testlooper_db, make_and_clear_repo
+    local_engine_agent, test_config_reactor, testlooper_db, generate_repo, clear_tasks
 ):
+    feature_branch = generate_repo["feature"]
+
     with testlooper_db.transaction():
-        commit = repo_schema.Commit.lookupUnique(hash="e")
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
         config_path = ".testlooper/config_dockerfile.yaml"
         test_config_task = engine_schema.GenerateTestConfigTask.create(
             commit=commit, config_path=config_path
@@ -84,10 +88,12 @@ def test_generate_test_configs_need_dockerfile(
 
 
 def test_generate_test_configs_no_dockerfile(
-    local_engine_agent, testlooper_db, make_and_clear_repo
+    local_engine_agent, testlooper_db, generate_repo, clear_tasks
 ):
+    feature_branch = generate_repo["feature"]
+
     with testlooper_db.transaction():
-        commit = repo_schema.Commit.lookupUnique(hash="e")
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
         config_path = ".testlooper/config_no_dockerfile.yaml"
         test_config_task = engine_schema.GenerateTestConfigTask.create(
             commit=commit, config_path=config_path
@@ -103,10 +109,11 @@ def test_generate_test_configs_no_dockerfile(
 
 
 def test_generate_test_configs_bad_path(
-    local_engine_agent, testlooper_db, make_and_clear_repo
+    local_engine_agent, testlooper_db, generate_repo, clear_tasks
 ):
+    feature_branch = generate_repo["feature"]
     with testlooper_db.transaction():
-        commit = repo_schema.Commit.lookupUnique(hash="e")
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
         config_path = ".testlooper/bad_path.yaml"
         test_config_task = engine_schema.GenerateTestConfigTask.create(
             commit=commit, config_path=config_path
@@ -121,15 +128,16 @@ def test_generate_test_configs_bad_path(
         assert test_config_task.status[0] == StatusEvent.FAILED
 
 
-def test_generate_test_configs_idempotent(
-    local_engine_service, testlooper_db, make_and_clear_repo
+def test_generate_test_configs_no_double_generation(
+    local_engine_service, testlooper_db, generate_repo, clear_tasks
 ):
     """If we make a TestConfigTask with the same path and commit, we shouldn't run the
     process again."""
 
+    feature_branch = generate_repo["feature"]
     # process the first
     with testlooper_db.transaction():
-        commit = repo_schema.Commit.lookupUnique(hash="e")
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
         config_path = ".testlooper/config_no_dockerfile.yaml"
         test_config_task = engine_schema.GenerateTestConfigTask.create(
             commit=commit, config_path=config_path
@@ -145,13 +153,13 @@ def test_generate_test_configs_idempotent(
 
     # process the second
     with testlooper_db.transaction():
-        commit = repo_schema.Commit.lookupUnique(hash="e")
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
         config_path = ".testlooper/config_no_dockerfile.yaml"
         test_config_task = engine_schema.GenerateTestConfigTask.create(
             commit=commit, config_path=config_path
         )
 
-    wait_for_task(testlooper_db, test_config_task)
+    wait_for_task(testlooper_db, test_config_task, break_status=StatusEvent.FAILED)
 
     with testlooper_db.view():
         assert len(engine_schema.BuildDockerImageTask.lookupAll(commit=commit)) == 0
@@ -161,10 +169,11 @@ def test_generate_test_configs_idempotent(
 
 
 def test_generate_test_configs_bad_config(
-    local_engine_service, testlooper_db, make_and_clear_repo
+    local_engine_service, testlooper_db, generate_repo, clear_tasks
 ):
+    feature_branch = generate_repo["feature"]
     with testlooper_db.transaction():
-        commit = repo_schema.Commit.lookupUnique(hash="e")
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
         config_path = ".testlooper/config_bad.yaml"
         test_config_task = engine_schema.GenerateTestConfigTask.create(
             commit=commit, config_path=config_path
@@ -202,7 +211,7 @@ def test_generate_commit_test_definitions_wrong_commit(
     with testlooper_db.transaction():
         commit_one = repo_schema.Commit.lookupUnique(hash="e")
         commit_two = repo_schema.Commit.lookupUnique(hash="c")
-        test_plan = repo_schema.TestPlan(plan=TEST_PLAN, commit=commit_one)
+        test_plan = test_schema.TestPlan(plan=TEST_PLAN, commit=commit_one)
         generate_ctd_task = engine_schema.CommitTestDefinitionGenerationTask.create(
             commit=commit_two, test_plan=test_plan
         )

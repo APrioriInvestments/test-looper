@@ -698,36 +698,50 @@ class LocalEngineAgent:
             commit = task.commit
             path = task.config_path
             commit_hash = commit.hash
+            commit_config = commit.test_config
 
         # read the config file.
-        config_file_contents = self.source_control_store.get_file_contents(commit_hash, path)
-
-        assert config_file_contents is not None
-
-        with self.db.view():
-            config = repo_schema.TestConfig.lookupUnique(config_str=config_file_contents)
-
-        if config is None:
-            with self.db.transaction():
-                config = repo_schema.TestConfig(
-                    config_str=config_file_contents, repo=commit.repo
+        try:
+            if commit_config is not None:
+                raise ValueError(
+                    f"Commit {commit_hash} already has a config file: {commit_config}"
                 )
-                config.parse_config()
-                if docker_config := config.image.get("docker"):
-                    if docker_config.get("dockerfile"):
-                        _ = engine_schema.BuildDockerImageTask.create(
-                            commit=commit,
-                            environment_name="TODO",
-                            dockerfile=docker_config["dockerfile"],
-                            image=config.name,
-                        )
-                        config.image_name = (
-                            config.name
-                        )  # for now, if we are building new docker images, use the repo name.
+
+            config_file_contents = self.source_control_store.get_file_contents(
+                commit_hash, path
+            )
+
+            assert config_file_contents is not None
+
+            with self.db.view():
+                config = repo_schema.TestConfig.lookupUnique(config_str=config_file_contents)
+
+            if config is None:
+                with self.db.transaction():
+                    config = repo_schema.TestConfig(
+                        config_str=config_file_contents, repo=commit.repo
+                    )
+                    config.parse_config()
+                    if docker_config := config.image.get("docker"):
+                        if docker_config.get("dockerfile"):
+                            _ = engine_schema.BuildDockerImageTask.create(
+                                commit=commit,
+                                environment_name="TODO",
+                                dockerfile=docker_config["dockerfile"],
+                                image=config.name,
+                            )
+                            config.image_name = (
+                                config.name
+                            )  # for now, if building new docker images, use the repo name
+                        else:
+                            config.image_name = docker_config["image"]
                     else:
-                        config.image_name = docker_config["image"]
-                else:
-                    raise ValueError("No docker image specified in config.")
+                        raise ValueError("No docker image specified in config.")
+        except Exception as e:
+            self.logger.error(f"Failed to parse config file: {e}")
+            with self.db.transaction():
+                task.failed(self.clock.time())
+            return
 
         with self.db.transaction():
             commit.test_config = config

@@ -173,6 +173,24 @@ def make_and_clear_repo(testlooper_db):
     clear_branch_structure(testlooper_db)
 
 
+def find_or_create_commit(hash, repo):
+    if commit := repo_schema.Commit.lookupUnique(hash=hash):
+        return commit
+    else:
+        return repo_schema.Commit(
+            hash=hash, repo=repo, commit_text="test commit", author="test author"
+        )
+
+
+def find_or_create_link(parent, child):
+    if commit_parent := repo_schema.CommitParent.lookupUnique(
+        parent_and_child=(parent, child)
+    ):
+        return commit_parent
+    else:
+        return repo_schema.CommitParent(parent=parent, child=child)
+
+
 def generate_branch_structure(db, branches):
     """
     Generate a repo with a few branches and commits.
@@ -182,22 +200,6 @@ def generate_branch_structure(db, branches):
         branches: A dict from branch name to a list of commit hashes, in order.
             The util will generate all commits and link them together.
     """
-
-    def find_or_create_commit(hash, repo):
-        if commit := repo_schema.Commit.lookupUnique(hash=hash):
-            return commit
-        else:
-            return repo_schema.Commit(
-                hash=hash, repo=repo, commit_text="test commit", author="test author"
-            )
-
-    def find_or_create_link(parent, child):
-        if commit_parent := repo_schema.CommitParent.lookupUnique(
-            parent_and_child=(parent, child)
-        ):
-            return commit_parent
-        else:
-            return repo_schema.CommitParent(parent=parent, child=child)
 
     with db.transaction():
         repo_config = RepoConfig.Local(path="/tmp/test_repo")
@@ -224,3 +226,114 @@ def clear_branch_structure(db):
         ]:
             for o in obj.lookupAll():
                 o.delete()
+
+
+config_dockerfile = """
+version: 1.0
+name: testlooper
+primary-branch: will-qol
+image:
+     docker:
+       dockerfile: .testlooper/environments/Dockerfile.setup
+       with-docker: true
+
+variables:
+    PYTHONPATH: ${REPO_ROOT}
+
+command:
+    python .testlooper/generate_test_plan.py  --output ${TEST_PLAN_OUTPUT}
+"""
+
+config_no_dockerfile = """
+version: 1.0
+name: testlooper
+primary-branch: will-qol
+image:
+     docker:
+       image: testlooper:latest
+       with-docker: true
+
+variables:
+    PYTHONPATH: ${REPO_ROOT}
+
+command:
+    python .testlooper/generate_test_plan.py  --output ${TEST_PLAN_OUTPUT}
+"""
+
+config_bad = """
+version: 1.0
+this doesn't parse
+"""
+
+
+@pytest.fixture(scope="module")
+def generate_repo(testlooper_db, local_engine_agent):
+    """Generate a temporary repo with a couple of branches and some commits.
+    Also generate a tests/ folder with some stuff in it for pytest to run.
+
+    repo structure:
+
+           A---B---C---D   master
+                \
+                 E---F   feature
+
+
+    We copy the config_dir from testlooper itself to allow tasks to run.
+    We copy the test dir from testlooper to give pytest something to grab.
+
+    Also make the ODB objects.
+    """
+    repo = local_engine_agent.source_control_store
+    repo.init()
+
+    author = "author <author@aprioriinvestments.com>"
+
+    # this holds the various testlooper files we need for our integration tests.
+    config_dir_contents = {
+        ".testlooper/config_dockerfile.yaml": config_dockerfile,
+        ".testlooper/config_no_dockerfile.yaml": config_no_dockerfile,
+        ".testlooper/config_bad.yaml": config_bad,
+    }
+
+    a = repo.create_commit(None, config_dir_contents, "message1", author=author)
+
+    repo.detach_head()
+    dep_repo = Git.get_instance(repo.path_to_repo + "/dep_repo")
+    dep_repo.clone_from(repo.path_to_repo)
+
+    b = dep_repo.create_commit(
+        a, {"dir1/file1": "contents_1"}, "message2", author=author, on_branch="master"
+    )
+    assert dep_repo.push_commit(b, branch="master", force=False, create_branch=True)
+
+    c = dep_repo.create_commit(b, {"dir1/file2": "contents_2"}, "message3", author)
+    d = dep_repo.create_commit(c, {"dir2/file2": "contents_2"}, "message4", author)
+    assert dep_repo.push_commit(d, branch="master", force=False)
+
+    e = dep_repo.create_commit(b, {"dir1/file2": "contents_3"}, "message5", author)
+    f = dep_repo.create_commit(e, {"dir2/file2": "contents_3"}, "message6", author)
+    assert dep_repo.push_commit(f, branch="feature", force=False, create_branch=True)
+
+    # make the ODB objects.
+    branches = {"master": [a, b, c, d], "feature": [b, e, f]}
+    generate_branch_structure(testlooper_db, branches)
+
+    return branches
+
+
+@pytest.fixture(scope="function")
+def clear_tasks(testlooper_db):
+    with testlooper_db.transaction():
+        for task_type in [
+            engine_schema.TestPlanGenerationTask,
+            engine_schema.TestSuiteGenerationTask,
+            engine_schema.BuildDockerImageTask,
+            engine_schema.TestRunTask,
+            engine_schema.CommitTestDefinitionGenerationTask,
+            engine_schema.GenerateTestConfigTask,
+            repo_schema.TestConfig,
+        ]:
+            for task in task_type.lookupAll():
+                task.delete()
+        for commit in repo_schema.Commit.lookupAll():
+            commit.test_config = None
