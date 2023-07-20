@@ -116,7 +116,7 @@ class TaskBase:
 class TestPlanGenerationTask(TaskBase):
     """Keep track of a task to generate a test plan."""
 
-    commit = repo_schema.Commit
+    commit = Indexed(repo_schema.Commit)
 
 
 @engine_schema.define
@@ -139,7 +139,7 @@ class TestPlanGenerationResult(ResultBase):
 
 @engine_schema.define
 class BuildDockerImageTask(TaskBase):
-    commit = repo_schema.Commit
+    commit = Indexed(repo_schema.Commit)
     environment_name = str
     dockerfile = str  # path to Dockerfile or its directory
     image = str  # image name and/or tag
@@ -194,7 +194,7 @@ class CommitTestDefinitionGenerationTask(TaskBase):
 class GenerateTestConfigTask(TaskBase):
     # test_config = repo_schema.TestConfig
     commit = repo_schema.Commit
-    config_path = str
+    config_path = str  # relative to the repo root
 
 
 @engine_schema.define
