@@ -4,11 +4,12 @@ test_local_engine.py
 Tests the Reactors in LocalEngineService, to wit:
 
     - generate_test_configs
-    - build_docker_images
+    - generate_commit_test_definitions
+
     - generate_test_plans
     - generate_test_suites
+    - build_docker_images
     - run_tests
-    - x generate_commit_test_definitions x
     - generate_test_run_tasks
 """
 import time
@@ -31,6 +32,7 @@ from ..utils import (  # noqa
 # ^ above generates two branches with 3 commits each (one shared):
 #   {"dev": ["a", "b", "c"], "feature": ["a", "d", "e"]}, TEST_PLAN
 
+#
 bad_test_plan_str = """
 version: 1
 this is incorrect yaml.
@@ -59,9 +61,141 @@ def wait_for_task(
 @pytest.fixture(scope="module")
 def test_config_reactor(testlooper_db, local_engine_agent):
     reactor = Reactor(testlooper_db, local_engine_agent.generate_test_configs)
-
     with reactor.running() as r:
         yield r
+
+
+@pytest.fixture(scope="module")
+def test_plan_reactor(testlooper_db, local_engine_agent):
+    reactor = Reactor(testlooper_db, local_engine_agent.generate_test_plans)
+    with reactor.running() as r:
+        yield r
+
+
+# ############### generate_test_plans #################
+"""
+TestPlanGenerationTask is made when TestConfig is made for a commit.
+Inputs:
+    - a TestPlanGenerationTask
+        - contains: literaly just has a commit, plus the status
+
+Assumes:
+   - the commit has a proper test_config
+  - the  Docker image exists already. (image_name is set)
+
+Outputs:
+    - a TestPlanGenerationResult
+        - contains: a commit, a TestPlan, a task., the error
+    - a CommitTestDefinitionGenerationTask
+    - a TestPlan
+"""
+
+
+def test_generate_test_plan(
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+):
+    """Given a commit with a test config already generated, successfully generate a
+    test plan."""
+    pass
+
+
+def test_generate_test_plan_bad_config(
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+):
+    """If the config command is malformed, fail gracefully."""
+    pass
+
+
+def test_generate_test_plan_no_docker(
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+):
+    """If the docker image we need isn't built yet, then fail gracefully (the scheduler is
+    responsible for avoiding this)."""
+    pass
+
+
+def test_generate_test_plan_no_config(
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+):
+    """If the commit is missing a config, fail gracefully (as before, the scheduler is
+    responsible for ensuring this doesn't happen)"""
+    pass
+
+
+def test_generate_test_plan_no_double_generation(
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+):
+    """If the commit already has a test plan, short circuit."""
+    pass
+
+
+# ############### generate_test_suites #################
+
+"""
+Test Suite GenerationTask is made by parse_test_plan in CommitTestDefinition, during
+CommitTestDefinitionGenerationTask.
+
+Input:
+    - a Task with a Commit, an Environment, Dependencies (not used right now), name,
+      list_tests_command, run_tests_command.
+
+Process:
+    - read the attrs
+    - check the commit out
+    - run the list_tests_command.
+    - parse the output
+
+
+Assumes;
+- commit hash  exists in the repo
+- env is well configured, env has an image name, and that image has already been built.
+
+
+
+Output:
+    - TestSuiteGenerationResult
+      TestSuite
+      suites in CommitTestDefinition
+"""
+
+
+def test_generate_test_suites(local_engine_agent, testlooper_db, generate_repo):
+    """SOP"""
+    pass
+
+
+def test_generate_test_suites_bad_list_command(
+    local_engine_agent, testlooper_db, generate_repo
+):
+    pass
+
+
+def test_generate_test_suites_ensure_docker(local_engine_agent, testlooper_db, generate_repo):
+    """We need the docker image to already exist prior to this task running."""
+    pass
+
+
+def test_generate_test_suites_no_double_generation(
+    local_engine_agent, testlooper_db, generate_repo
+):
+    """If the commit test definition already exists, short circuit."""
+    pass
+
+
+# ############### build_docker_images #################
+"""
+TODO immediately - we need to alter the dag to ensure that run tests, list tests, and the test
+plan and suite generation tasks block
+on the docker image build.
+
+DockerBuildTask is made when?
+
+TODO our docker builds are actually not interacting with Environment in the correct way."""
+
+
+def test_blocked_tasks_start_after_docker_image_build():
+    """Make some tasks, ensure they don't start until after the docker image is built."""
+    pass
 
 
 #  ############## generate_test_configs ###############

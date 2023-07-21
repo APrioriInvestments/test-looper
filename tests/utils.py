@@ -323,6 +323,7 @@ def generate_repo(testlooper_db, local_engine_agent):
 
 @pytest.fixture(scope="function")
 def clear_tasks(testlooper_db):
+    yield
     with testlooper_db.transaction():
         for task_type in [
             engine_schema.TestPlanGenerationTask,
