@@ -355,6 +355,68 @@ if __name__ == "__main__":
 """
 
 
+collect_pytest_tests = """
+demo_tests = \"""
+test_one:
+  path: test_one.py
+  labels:
+    - slow
+test_two:
+  path: test_two.py
+  labels:
+    - fast
+\"""
+if __name__ == "__main__":
+    print(demo_tests)
+"""
+
+run_pytest_tests = """
+import os
+import subprocess
+import sys
+from typing import Optional
+
+
+def run_pytest_json_report(args) -> Optional[str]:
+    test_output = os.environ.get("TEST_OUTPUT")
+    test_input = os.environ.get("TEST_INPUT")
+
+    command = [sys.executable, "-m", "pytest", "--json-report"]
+
+    if test_output:
+        command.extend(["--json-report-file", test_output])
+
+    if test_input:
+        # we expect a test on each line, with the format path_to_file::test_name
+        with open(test_input, "r") as flines:
+            test_cases = [
+                line.strip()
+                for line in flines.readlines()
+                if line and not line.startswith("#")
+            ]
+        command.extend(test_cases)
+
+    command.extend(args)
+    try:
+        output = subprocess.check_output(command, text=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        output = e.output
+        print(f"Error occurred: {e}")
+        return None
+    return output
+
+
+def main():
+    args = sys.argv[1:]
+    output = run_pytest_json_report(args)
+    print(output)
+
+
+if __name__ == "__main__":
+    main()
+"""
+
+
 @pytest.fixture(scope="module")
 def generate_repo(testlooper_db, local_engine_agent):
     """Generate a temporary repo with a couple of branches and some commits.
@@ -384,6 +446,8 @@ def generate_repo(testlooper_db, local_engine_agent):
         ".testlooper/config_bad.yaml": config_bad,
         ".testlooper/config_bad_command.yaml": config_bad_command,
         ".testlooper/generate_test_plan.py": generate_test_plan,
+        ".testlooper/collect_pytest_tests.py": collect_pytest_tests,
+        ".testlooper/run_pytest_tests.py": run_pytest_tests,
     }
 
     a = repo.create_commit(None, config_dir_contents, "message1", author=author)
@@ -424,8 +488,11 @@ def clear_tasks(testlooper_db):
             engine_schema.CommitTestDefinitionGenerationTask,
             engine_schema.GenerateTestConfigTask,
             engine_schema.TestPlanGenerationResult,
+            engine_schema.TestSuiteGenerationResult,
             repo_schema.TestConfig,
             test_schema.TestPlan,
+            test_schema.TestSuite,
+            test_schema.CommitTestDefinition,
         ]:
             for task in task_type.lookupAll():
                 task.delete()

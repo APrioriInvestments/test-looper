@@ -224,8 +224,8 @@ class CommitTestDefinition:
     commit = Indexed(repo_schema.Commit)
 
     test_plan = OneOf(None, test_schema.TestPlan)  # None when pending generation
-    test_suites = ConstDict(
-        str, OneOf(None, test_schema.TestSuite)
+    test_suites = OneOf(
+        None, ConstDict(str, test_schema.TestSuite)
     )  # None when pending generation
 
     def set_test_plan(self, test_plan):

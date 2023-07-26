@@ -19,6 +19,7 @@ from object_database import Reactor
 
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.schema.engine_schema import StatusEvent
+from testlooper.schema.test_schema import Image
 from ..utils import (  # noqa
     local_engine_agent,
     local_engine_service,
@@ -70,6 +71,13 @@ def test_config_reactor(testlooper_db, local_engine_agent):
 @pytest.fixture(scope="module")
 def test_plan_reactor(testlooper_db, local_engine_agent):
     reactor = Reactor(testlooper_db, local_engine_agent.generate_test_plans)
+    with reactor.running() as r:
+        yield r
+
+
+@pytest.fixture(scope="module")
+def test_suite_reactor(testlooper_db, local_engine_agent):
+    reactor = Reactor(testlooper_db, local_engine_agent.generate_test_suites)
     with reactor.running() as r:
         yield r
 
@@ -206,7 +214,6 @@ def test_generate_test_plan_no_double_generation(
         config.parse_config()
         config.image_name = config.image["docker"]["image"]
         commit.test_config = config
-
         plan_generation_task = engine_schema.TestPlanGenerationTask.create(commit=commit)
 
     wait_for_task(testlooper_db, plan_generation_task)
@@ -244,8 +251,6 @@ Assumes;
 - commit hash  exists in the repo
 - env is well configured, env has an image name, and that image has already been built.
 
-
-
 Output:
     - TestSuiteGenerationResult
       TestSuite
@@ -253,27 +258,165 @@ Output:
 """
 
 
-def test_generate_test_suites(local_engine_agent, testlooper_db, generate_repo):
-    """SOP"""
-    pass
+def test_generate_test_suites(
+    local_engine_agent, testlooper_db, generate_repo, test_suite_reactor, clear_tasks
+):
+    """SOP test
+    TODO: assumes docker env built"""
+    commit_hash = generate_repo["feature"][-1]
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+        env = test_schema.Environment(
+            name="test",
+            variables={},
+            image=Image.DockerImage(name="testlooper:latest", with_docker=True),
+        )
+        list_tests = "python .testlooper/collect_pytest_tests.py"
+        run_tests = "python .testlooper/run_pytest_tests.py"
+        timeout = 60
+        commit_test_definition = test_schema.CommitTestDefinition(
+            commit=commit, test_plan=None, test_suites=None
+        )
+        task = engine_schema.TestSuiteGenerationTask.create(
+            commit=commit,
+            environment=env,
+            name="test",
+            timeout_seconds=timeout,
+            list_tests_command=list_tests,
+            run_tests_command=run_tests,
+        )
+
+    wait_for_task(testlooper_db, task)
+
+    with testlooper_db.view():
+        assert task.status[0] == StatusEvent.COMPLETED
+        result = engine_schema.TestSuiteGenerationResult.lookupUnique(task=task)
+        assert result is not None
+        assert len(result.suite.tests) == 2
+        assert len(commit_test_definition.test_suites) == 1
 
 
 def test_generate_test_suites_bad_list_command(
-    local_engine_agent, testlooper_db, generate_repo
+    local_engine_agent, testlooper_db, generate_repo, test_suite_reactor, clear_tasks
 ):
-    pass
+    commit_hash = generate_repo["feature"][-1]
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+        env = test_schema.Environment(
+            name="test",
+            variables={},
+            image=Image.DockerImage(name="testlooper:latest", with_docker=True),
+        )
+        list_tests = "python bad_command.py"
+        run_tests = "python .testlooper/run_pytest_tests.py"
+        timeout = 60
+        _ = test_schema.CommitTestDefinition(commit=commit, test_plan=None, test_suites=None)
+        task = engine_schema.TestSuiteGenerationTask.create(
+            commit=commit,
+            environment=env,
+            name="test",
+            timeout_seconds=timeout,
+            list_tests_command=list_tests,
+            run_tests_command=run_tests,
+        )
+
+    wait_for_task(testlooper_db, task, break_status=StatusEvent.FAILED)
+
+    with testlooper_db.view():
+        assert task.status[0] == StatusEvent.FAILED
 
 
-def test_generate_test_suites_ensure_docker(local_engine_agent, testlooper_db, generate_repo):
-    """We need the docker image to already exist prior to this task running."""
-    pass
+def test_generate_test_suites_ensure_docker(
+    local_engine_agent, testlooper_db, test_suite_reactor, generate_repo, clear_tasks
+):
+    """We need the docker image to already exist prior to this task running.
+
+    The task should block until it does."""
+    commit_hash = generate_repo["feature"][-1]
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+        env = test_schema.Environment(
+            name="test",
+            variables={},
+            image=Image.DockerImage(name="testlooper_needs_build:latest", with_docker=True),
+        )
+        list_tests = "python .testlooper/collect_pytest_tests.py"
+        run_tests = "python .testlooper/run_pytest_tests.py"
+        timeout = 60
+        commit_test_definition = test_schema.CommitTestDefinition(
+            commit=commit, test_plan=None, test_suites=None
+        )
+        task = engine_schema.TestSuiteGenerationTask.create(
+            commit=commit,
+            environment=env,
+            name="test",
+            timeout_seconds=timeout,
+            list_tests_command=list_tests,
+            run_tests_command=run_tests,
+        )
+
+    wait_for_task(testlooper_db, task)
+
+    with testlooper_db.view():
+        assert task.status[0] == StatusEvent.COMPLETED
+        result = engine_schema.TestSuiteGenerationResult.lookupUnique(task=task)
+        assert result is not None
+        assert len(result.suite.tests) == 2
+        assert len(commit_test_definition.test_suites) == 1
 
 
 def test_generate_test_suites_no_double_generation(
-    local_engine_agent, testlooper_db, generate_repo
+    local_engine_agent, testlooper_db, test_suite_reactor, generate_repo, clear_tasks
 ):
-    """If the commit test definition already exists, short circuit."""
-    pass
+    """If the commit test definition already has the suite, short circuit."""
+    commit_hash = generate_repo["feature"][-1]
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+        env = test_schema.Environment(
+            name="test",
+            variables={},
+            image=Image.DockerImage(name="testlooper:latest", with_docker=True),
+        )
+        list_tests = "python .testlooper/collect_pytest_tests.py"
+        run_tests = "python .testlooper/run_pytest_tests.py"
+        timeout = 60
+        commit_test_definition = test_schema.CommitTestDefinition(
+            commit=commit, test_plan=None, test_suites=None
+        )
+        task = engine_schema.TestSuiteGenerationTask.create(
+            commit=commit,
+            environment=env,
+            name="test",
+            timeout_seconds=timeout,
+            list_tests_command=list_tests,
+            run_tests_command=run_tests,
+        )
+
+    wait_for_task(testlooper_db, task)
+
+    with testlooper_db.view():
+        assert task.status[0] == StatusEvent.COMPLETED
+        result = engine_schema.TestSuiteGenerationResult.lookupUnique(task=task)
+        assert result is not None
+        assert len(result.suite.tests) == 2
+        assert len(commit_test_definition.test_suites) == 1
+
+    # go again
+    with testlooper_db.transaction():
+        task = engine_schema.TestSuiteGenerationTask.create(
+            commit=commit,
+            environment=env,
+            name="test",
+            timeout_seconds=timeout,
+            list_tests_command=list_tests,
+            run_tests_command=run_tests,
+        )
+
+    wait_for_task(testlooper_db, task, break_status=StatusEvent.FAILED)
+
+    with testlooper_db.view():
+        assert task.status[0] == StatusEvent.FAILED
+        assert len(test_schema.TestSuite.lookupAll()) == 1
 
 
 # ############### build_docker_images #################

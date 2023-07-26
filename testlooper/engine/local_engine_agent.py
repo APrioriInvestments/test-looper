@@ -611,9 +611,14 @@ class LocalEngineAgent:
                     return
 
     def generate_test_suite(self, task):
-        """Generate some test suites."""
+        """Generate some test suites. Triggered by parse_test_plan on CommitTestDefinition."""
         with self.db.view():
             status, timestamp = task.status
+
+        if not self._start_task(task, status, self.clock.time()):
+            return
+
+        with self.db.view():
             commit = task.commit
             commit_hash = task.commit.hash
             env = task.environment
@@ -624,9 +629,9 @@ class LocalEngineAgent:
             # dependencies = task.dependencies
             list_tests_command = task.list_tests_command
             run_tests_command = task.run_tests_command
-
-        if not self._start_task(task, status, self.clock.time()):
-            return
+            ctd = test_schema.CommitTestDefinition.lookupUnique(commit=commit)
+            if ctd.test_suites and task.name in ctd.test_suites:
+                raise ValueError(f"Test suite already exists for commit {commit_hash}")
 
         output = None
         suite = None
@@ -675,23 +680,22 @@ class LocalEngineAgent:
                     f"Generated test suite {suite.name} with {len(test_dict)} tests."
                 )
 
-        with self.db.transaction():
-            try:
+        try:
+            with self.db.transaction():
                 task.completed(self.clock.time())
                 _ = engine_schema.TestSuiteGenerationResult(
                     task=task, error="", commit=commit, suite=suite
                 )
                 # add the test suite to the commit test definition: could be a separate service
-                ctd = test_schema.CommitTestDefinition.lookupUnique(commit=commit)
                 # have to do the copy dance so that ODB notices the change.
                 suites = dict(ctd.test_suites) if ctd.test_suites else {}
                 suites[suite.name] = suite
                 ctd.test_suites = suites
 
-            except Exception as e:
-                self.logger.exception("Failed to commit result to ODB.")
-                self._test_suite_task_failed(task, f"Failed to commit result to ODB: {str(e)}")
-                return
+        except Exception as e:
+            self.logger.exception("Failed to commit result to ODB.")
+            self._test_suite_task_failed(task, f"Failed to commit result to ODB: {str(e)}")
+            return
 
     def generate_test_config(self, task):
         """When a Commit comes in, we read the commit's config file, and make a new
