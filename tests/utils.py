@@ -265,6 +265,21 @@ version: 1.0
 this doesn't parse
 """
 
+config_bad_command = """
+version: 1.0
+name: testlooper
+primary-branch: will-qol
+image:
+     docker:
+       image: testlooper:latest
+       with-docker: true
+
+variables:
+    PYTHONPATH: ${REPO_ROOT}
+
+command:
+    python .testlooper/this_doesnt_exist.py  --output ${TEST_PLAN_OUTPUT}
+"""
 generate_test_plan = """
 
 import argparse
@@ -367,6 +382,7 @@ def generate_repo(testlooper_db, local_engine_agent):
         ".testlooper/config_dockerfile.yaml": config_dockerfile,
         ".testlooper/config_no_dockerfile.yaml": config_no_dockerfile,
         ".testlooper/config_bad.yaml": config_bad,
+        ".testlooper/config_bad_command.yaml": config_bad_command,
         ".testlooper/generate_test_plan.py": generate_test_plan,
     }
 
@@ -407,7 +423,9 @@ def clear_tasks(testlooper_db):
             engine_schema.TestRunTask,
             engine_schema.CommitTestDefinitionGenerationTask,
             engine_schema.GenerateTestConfigTask,
+            engine_schema.TestPlanGenerationResult,
             repo_schema.TestConfig,
+            test_schema.TestPlan,
         ]:
             for task in task_type.lookupAll():
                 task.delete()

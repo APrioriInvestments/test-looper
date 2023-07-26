@@ -526,14 +526,18 @@ class LocalEngineAgent:
 
         with self.db.view():
             status, timestamp = task.status
+        if not self._start_task(task, status, self.clock.time()):
+            return
+
+        with self.db.view():
             commit = task.commit
             commit_hash = commit.hash
             command = commit.test_config.command
             env_vars = commit.test_config.variables
             image_name = commit.test_config.image_name
-
-        if not self._start_task(task, status, self.clock.time()):
-            return
+            test_plan = test_schema.TestPlan.lookupUnique(commit=commit)
+            if test_plan is not None:
+                raise ValueError(f"Test plan already exists for commit {commit_hash}")
 
         # Run test-plan generation in a Docker container.
         # Requires that docker has access to /tmp/

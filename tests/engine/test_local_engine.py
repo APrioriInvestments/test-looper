@@ -27,6 +27,7 @@ from ..utils import (  # noqa
     generate_repo,
     clear_tasks,
     config_no_dockerfile,
+    config_bad_command,
     TEST_PLAN,
 )
 
@@ -93,7 +94,7 @@ Outputs:
 
 
 def test_generate_test_plan(
-    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor, clear_tasks
 ):
     """Given a commit with a test config already generated, successfully generate a
     test plan.
@@ -121,33 +122,105 @@ def test_generate_test_plan(
 
 
 def test_generate_test_plan_bad_config(
-    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor, clear_tasks
 ):
-    """If the config command is malformed, fail gracefully."""
-    pass
+    """If the config command is parseable/valid yaml but malformed, fail gracefully."""
+    feature_branch = generate_repo["feature"]  # get a commit hash
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
+        # need to have a config ready to go.
+        config = repo_schema.TestConfig(config_str=config_bad_command, repo=commit.repo)
+        config.parse_config()
+        config.image_name = config.image["docker"]["image"]
+        commit.test_config = config
+
+        plan_generation_task = engine_schema.TestPlanGenerationTask.create(commit=commit)
+
+    wait_for_task(testlooper_db, plan_generation_task, break_status=StatusEvent.FAILED)
+
+    with testlooper_db.view():
+        assert plan_generation_task.status[0] == StatusEvent.FAILED
+        result = engine_schema.TestPlanGenerationResult.lookupAny(task=plan_generation_task)
+        assert result is not None
+        assert result.data is None
+        assert result.error
 
 
 def test_generate_test_plan_no_docker(
-    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor, clear_tasks
 ):
     """If the docker image we need isn't built yet, then fail gracefully (the scheduler is
     responsible for avoiding this)."""
-    pass
+    feature_branch = generate_repo["feature"]  # get a commit hash
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
+        # need to have a config ready to go.
+        config = repo_schema.TestConfig(config_str=config_no_dockerfile, repo=commit.repo)
+        config.parse_config()
+        config.image_name = "bad_image:latest"
+        commit.test_config = config
+
+        plan_generation_task = engine_schema.TestPlanGenerationTask.create(commit=commit)
+
+    wait_for_task(testlooper_db, plan_generation_task, break_status=StatusEvent.FAILED)
+
+    with testlooper_db.view():
+        assert plan_generation_task.status[0] == StatusEvent.FAILED
+        result = engine_schema.TestPlanGenerationResult.lookupAny(task=plan_generation_task)
+        assert result is not None
+        assert result.data is None
+        assert result.error
 
 
 def test_generate_test_plan_no_config(
-    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor, clear_tasks
 ):
     """If the commit is missing a config, fail gracefully (as before, the scheduler is
     responsible for ensuring this doesn't happen)"""
-    pass
+    feature_branch = generate_repo["feature"]  # get a commit hash
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
+        # need to have a config ready to go.
+        plan_generation_task = engine_schema.TestPlanGenerationTask.create(commit=commit)
+
+    wait_for_task(testlooper_db, plan_generation_task, break_status=StatusEvent.FAILED)
+
+    with testlooper_db.view():
+        assert plan_generation_task.status[0] == StatusEvent.FAILED
+        result = engine_schema.TestPlanGenerationResult.lookupAny(task=plan_generation_task)
+        assert result is not None
+        assert result.data is None
+        assert result.error
 
 
 def test_generate_test_plan_no_double_generation(
-    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
+    local_engine_agent, testlooper_db, generate_repo, test_plan_reactor, clear_tasks
 ):
     """If the commit already has a test plan, short circuit."""
-    pass
+
+    feature_branch = generate_repo["feature"]  # get a commit hash
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
+        # need to have a config ready to go.
+        config = repo_schema.TestConfig(config_str=config_no_dockerfile, repo=commit.repo)
+        config.parse_config()
+        config.image_name = config.image["docker"]["image"]
+        commit.test_config = config
+
+        plan_generation_task = engine_schema.TestPlanGenerationTask.create(commit=commit)
+
+    wait_for_task(testlooper_db, plan_generation_task)
+
+    # go again
+    with testlooper_db.transaction():
+        second_plan_generation_task = engine_schema.TestPlanGenerationTask.create(
+            commit=commit
+        )
+
+    wait_for_task(testlooper_db, second_plan_generation_task, break_status=StatusEvent.FAILED)
+
+    with testlooper_db.view():
+        assert second_plan_generation_task.status[0] == StatusEvent.FAILED
 
 
 # ############### generate_test_suites #################
