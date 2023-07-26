@@ -52,7 +52,7 @@ def test_git_basic_commits(dummy_repo_and_path):
             h2, {"file1": "hi2_2", "dir/file2": None}, "message3\n\nnewline\n\n", AUTHOR
         )
 
-        assert dep_repo.push_commit(h2_1, "master")
+        assert dep_repo.push_commit(h2_1, "master", create_branch=True)
         assert base_repo.commit_exists(h2_1)
 
         assert not dep_repo.push_commit(h2_2, "master")

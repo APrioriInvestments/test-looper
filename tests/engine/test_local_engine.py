@@ -9,8 +9,8 @@ Tests the Reactors in LocalEngineService, to wit:
     - generate_test_plans
     - generate_test_suites
     - build_docker_images
-    - run_tests
-    - generate_test_run_tasks
+    - run_tests TODO
+    - generate_test_run_tasks TODO
 """
 import time
 import pytest
@@ -26,6 +26,7 @@ from ..utils import (  # noqa
     make_and_clear_repo,
     generate_repo,
     clear_tasks,
+    config_no_dockerfile,
     TEST_PLAN,
 )
 
@@ -95,8 +96,28 @@ def test_generate_test_plan(
     local_engine_agent, testlooper_db, generate_repo, test_plan_reactor
 ):
     """Given a commit with a test config already generated, successfully generate a
-    test plan."""
-    pass
+    test plan.
+
+    NB: this needs the image specified in the config file to exist already.
+    """
+    feature_branch = generate_repo["feature"]  # get a commit hash
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=feature_branch[-1])
+        # need to have a config ready to go.
+        config = repo_schema.TestConfig(config_str=config_no_dockerfile, repo=commit.repo)
+        config.parse_config()
+        config.image_name = config.image["docker"]["image"]
+        commit.test_config = config
+
+        plan_generation_task = engine_schema.TestPlanGenerationTask.create(commit=commit)
+
+    wait_for_task(testlooper_db, plan_generation_task)
+
+    with testlooper_db.view():
+        assert plan_generation_task.status[0] == StatusEvent.COMPLETED
+        result = engine_schema.TestPlanGenerationResult.lookupAny(task=plan_generation_task)
+        assert result is not None
+        assert result.data is not None
 
 
 def test_generate_test_plan_bad_config(
