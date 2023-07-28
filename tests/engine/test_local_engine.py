@@ -5,7 +5,6 @@ Tests the Reactors in LocalEngineService, to wit:
 
     - generate_test_configs
     - generate_commit_test_definitions
-
     - generate_test_plans
     - generate_test_suites
     - build_docker_images
@@ -19,7 +18,7 @@ from object_database import Reactor
 
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.schema.engine_schema import StatusEvent
-from testlooper.schema.test_schema import Image
+from testlooper.schema.test_schema import DesiredTesting, Image, TestFilter
 from ..utils import (  # noqa
     local_engine_agent,
     local_engine_service,
@@ -42,6 +41,15 @@ this is incorrect yaml.
 """
 
 MAX_RETRIES = 10
+
+
+DEFAULT_DESIRED_TESTING = DesiredTesting(
+    runs_desired=1,
+    fail_runs_desired=0,
+    flake_runs_desired=0,
+    new_runs_desired=0,
+    filter=TestFilter(labels="Any", path_prefixes="Any", suites="Any", regex=None),
+)
 
 
 def wait_for_task(
@@ -78,6 +86,20 @@ def test_plan_reactor(testlooper_db, local_engine_agent):
 @pytest.fixture(scope="module")
 def test_suite_reactor(testlooper_db, local_engine_agent):
     reactor = Reactor(testlooper_db, local_engine_agent.generate_test_suites)
+    with reactor.running() as r:
+        yield r
+
+
+@pytest.fixture(scope="module")
+def test_run_reactor(testlooper_db, local_engine_agent):
+    reactor = Reactor(testlooper_db, local_engine_agent.run_tests)
+    with reactor.running() as r:
+        yield r
+
+
+@pytest.fixture(scope="module")
+def test_run_generator_reactor(testlooper_db, local_engine_agent):
+    reactor = Reactor(testlooper_db, local_engine_agent.generate_test_run_tasks)
     with reactor.running() as r:
         yield r
 
@@ -561,7 +583,7 @@ def test_generate_test_configs_bad_config(
 
 #  ############### generate_commit_test_definitions ################
 def test_generate_commit_test_definitions(
-    local_engine_service, testlooper_db, make_and_clear_repo
+    local_engine_service, testlooper_db, make_and_clear_repo, clear_tasks
 ):
     with testlooper_db.transaction():
         commit = repo_schema.Commit.lookupUnique(hash="e")
@@ -577,7 +599,7 @@ def test_generate_commit_test_definitions(
 
 
 def test_generate_commit_test_definitions_wrong_commit(
-    local_engine_service, testlooper_db, make_and_clear_repo
+    local_engine_service, testlooper_db, make_and_clear_repo, clear_tasks
 ):
     with testlooper_db.transaction():
         commit_one = repo_schema.Commit.lookupUnique(hash="e")
@@ -597,7 +619,7 @@ def test_generate_commit_test_definitions_wrong_commit(
 
 
 def test_generate_commit_test_definitions_malformed_test_plan(
-    local_engine_service, testlooper_db, make_and_clear_repo
+    local_engine_service, testlooper_db, make_and_clear_repo, clear_tasks
 ):
     with testlooper_db.transaction():
         commit = repo_schema.Commit.lookupUnique(hash="e")
@@ -612,7 +634,7 @@ def test_generate_commit_test_definitions_malformed_test_plan(
 
 
 def test_generate_commit_test_definitions_double_generate(
-    local_engine_service, testlooper_db, make_and_clear_repo
+    local_engine_service, testlooper_db, make_and_clear_repo, clear_tasks
 ):
     with testlooper_db.transaction():
         commit = repo_schema.Commit.lookupUnique(hash="e")
@@ -632,3 +654,334 @@ def test_generate_commit_test_definitions_double_generate(
 
     with testlooper_db.transaction():
         assert generate_ctd_task_2.status[0] == StatusEvent.FAILED
+
+
+# ############### generate_test_run_tasks ################
+""" Trigger: a new or updated CommitDesiredTesting object
+    Assumptions: We have a CommitDesiredTesting and a CommitTestDefinition object.
+    The CommitTestDefinition has suites.
+
+    Step 1: We get all the commit_test_definitions with altered testing. We bundle them
+    into a list [commit, desired_testing, all_test_results]
+
+    Step 2: Each desired testing filter gets parsed. Then the TestRunTask is created as
+    appropriate.
+
+
+
+    Inputs: The commitdesiredtestings
+    Outputs: TestRunTasks.
+"""
+
+
+def test_generate_test_run_tasks(
+    local_engine_agent, testlooper_db, generate_repo, test_run_generator_reactor, clear_tasks
+):
+    """Standard operation - set up the CommitTestDefinition, then make a new
+    CommitDesiredTesting.
+
+    Assert that we generate the right number of TestRunTasks.
+
+    """
+    commit_hash = generate_repo["feature"][-1]
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+        commit_test_definition = test_schema.CommitTestDefinition(
+            commit=commit, test_plan=None, test_suites=None
+        )
+        env = test_schema.Environment(
+            name="test",
+            variables={},
+            image=Image.DockerImage(name="testlooper:latest", with_docker=True),
+        )
+
+        test_dict = {
+            "test_1": test_schema.Test(name="test_1", labels=[], path="test_path"),
+            "test_2": test_schema.Test(name="test_2", labels=[], path="test_path"),
+        }
+        test_suite = test_schema.TestSuite(
+            name="test", environment=env, tests=test_dict, run_tests_command="test"
+        )
+        commit_test_definition.test_suites = {"test": test_suite}
+
+        _ = test_schema.CommitDesiredTesting(
+            commit=commit, desired_testing=DEFAULT_DESIRED_TESTING
+        )
+    max_retries = 5
+    for _ in range(max_retries):
+        with testlooper_db.view():
+            if len(engine_schema.TestRunTask.lookupAll(commit=commit)) == 2:
+                break
+        time.sleep(0.1)
+    else:
+        assert False, "TestRunTasks not generated"
+
+    with testlooper_db.view():
+        test_run_tasks = engine_schema.TestRunTask.lookupAll(commit=commit)
+        for task in test_run_tasks:
+            assert task.runs_desired == 1
+
+
+def test_generate_test_run_tasks_updated_testing(
+    local_engine_agent, testlooper_db, generate_repo, test_run_generator_reactor, clear_tasks
+):
+    """Check that if we update the CommitDesiredTesting (here bumping the runs_desired) new
+    TestRunTasks are generated."""
+
+    # make the initial tasks
+    commit_hash = generate_repo["feature"][-1]
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+        commit_test_definition = test_schema.CommitTestDefinition(
+            commit=commit, test_plan=None, test_suites=None
+        )
+        env = test_schema.Environment(
+            name="test",
+            variables={},
+            image=Image.DockerImage(name="testlooper:latest", with_docker=True),
+        )
+
+        test_dict = {
+            "test_1": test_schema.Test(name="test_1", labels=[], path="test_path"),
+            "test_2": test_schema.Test(name="test_2", labels=[], path="test_path"),
+        }
+        test_suite = test_schema.TestSuite(
+            name="test", environment=env, tests=test_dict, run_tests_command="test"
+        )
+        commit_test_definition.test_suites = {"test": test_suite}
+
+        commit_desired_testing = test_schema.CommitDesiredTesting(
+            commit=commit, desired_testing=DEFAULT_DESIRED_TESTING
+        )
+    max_retries = 5
+    for _ in range(max_retries):
+        with testlooper_db.view():
+            if len(engine_schema.TestRunTask.lookupAll(commit=commit)) == 2:
+                break
+        time.sleep(0.1)
+    else:
+        assert False, "TestRunTasks not generated"
+
+    with testlooper_db.view():
+        test_run_tasks = engine_schema.TestRunTask.lookupAll(commit=commit)
+        for task in test_run_tasks:
+            assert task.runs_desired == 1
+
+    # now update the desired testing
+
+    with testlooper_db.transaction():
+        commit_desired_testing.desired_testing = (
+            commit_desired_testing.desired_testing.replacing(runs_desired=3)
+        )
+
+    for _ in range(max_retries):
+        with testlooper_db.view():
+            if len(engine_schema.TestRunTask.lookupAll(commit=commit)) == 4:
+                break
+        time.sleep(0.1)
+    else:
+        assert False, "TestRunTasks not generated"
+
+    with testlooper_db.view():
+        new_test_run_tasks = engine_schema.TestRunTask.lookupAll(commit=commit)
+        for task in new_test_run_tasks:
+            if task not in test_run_tasks:
+                assert task.runs_desired == 2
+
+
+# ############## run_tests ################
+""" Trigger: New TestRunTasks
+
+    Take a commit, and a batch of suites and tests to run. Checkout the commit, and run the
+    suites' run_tests command in the provided container.
+    We read the test output (specified via env vars) and parse it into a TestRunResult object.
+    Make a TestResults object if required (shouldn't ever be required) and add the result to
+    it. If any of the tests fail, then we fail the whole lot.
+    Assumptions:
+    Inputs: TestRunTasks
+    Outputs: Updated TestResults, completed Tasks
+
+
+TODO this too will need Docker builds.
+"""
+
+
+mock_run_test_command = """echo '{
+  "created": 1691006618.8062782,
+  "duration": 0.01,
+  "exitcode": 0,
+  "root": "/home/testlooper",
+  "environment": {},
+  "summary": {
+    "passed": 2,
+    "total": 2,
+    "collected": 2
+  },
+  "collectors": [],
+  "tests": [
+    {
+      "nodeid": "test_dummy1.py::test_1",
+      "outcome": "passed",
+      "lineno": 1,
+      "setup": {
+        "duration": 1.042643011896871,
+        "outcome": "passed"
+      },
+      "call": {
+        "duration": 0.02529199793934822,
+        "outcome": "passed"
+      },
+      "teardown": {
+        "duration": 0.05340163595974445,
+        "outcome": "passed"
+      },
+      "keywords": []
+    },
+    {
+      "nodeid": "test_dummy2.py::test_2",
+      "outcome": "passed",
+      "lineno": 1,
+      "setup": {
+        "duration": 1.042643011896871,
+        "outcome": "passed"
+      },
+      "call": {
+        "duration": 0.02529199793934822,
+        "outcome": "passed"
+      },
+      "teardown": {
+        "duration": 0.05340163595974445,
+        "outcome": "passed"
+      },
+      "keywords": []
+    }
+  ]
+}' > "$TEST_OUTPUT"
+"""
+
+
+def test_run_tests_single_commit(
+    testlooper_db, local_engine_agent, generate_repo, test_run_reactor, clear_tasks
+):
+    # make the necessary test run tasks, ensure they get run.
+    commit_hash = generate_repo["feature"][-1]
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+        env = test_schema.Environment(
+            name="test",
+            variables={},
+            image=Image.DockerImage(name="testlooper:latest", with_docker=True),
+        )
+
+        test_dict = {
+            "test_1": test_schema.Test(name="test_1", labels=[], path="test_path"),
+            "test_2": test_schema.Test(name="test_2", labels=[], path="test_path"),
+        }
+        test_suite = test_schema.TestSuite(
+            name="test",
+            environment=env,
+            tests=test_dict,
+            run_tests_command=mock_run_test_command,
+        )
+
+        results = []
+        for test in test_dict.values():
+            test_result = test_schema.TestResults(
+                test=test, commit=commit, suite=test_suite, runs_desired=0
+            )
+            results.append(test_result)
+
+        tasks = []
+        for result in results:
+            task = engine_schema.TestRunTask.create(
+                test_results=result, runs_desired=1, commit=commit, suite=test_suite
+            )
+            tasks.append(task)
+
+    for task in tasks:
+        wait_for_task(testlooper_db, task, break_status=StatusEvent.COMPLETED)
+
+    with testlooper_db.view():
+        for task in tasks:
+            assert task.test_results.runs_completed == 1
+            assert task.test_results.runs_passed == 1
+
+
+def test_run_tests_needs_docker_build(
+    testlooper_db, local_engine_agent, generate_repo, test_run_reactor, clear_tasks
+):
+    commit_hash = generate_repo["feature"][-1]
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+        env = test_schema.Environment(
+            name="test",
+            variables={},
+            image=Image.DockerImage(name="testlooper_needs_build:latest", with_docker=True),
+        )
+
+        test_dict = {
+            "test_1": test_schema.Test(name="test_1", labels=[], path="test_path"),
+            "test_2": test_schema.Test(name="test_2", labels=[], path="test_path"),
+        }
+        test_suite = test_schema.TestSuite(
+            name="test",
+            environment=env,
+            tests=test_dict,
+            run_tests_command=mock_run_test_command,
+        )
+
+        results = []
+        for test in test_dict.values():
+            test_result = test_schema.TestResults(
+                test=test, commit=commit, suite=test_suite, runs_desired=0
+            )
+            results.append(test_result)
+
+        tasks = []
+        for result in results:
+            task = engine_schema.TestRunTask.create(
+                test_results=result, runs_desired=1, commit=commit, suite=test_suite
+            )
+            tasks.append(task)
+
+    for task in tasks:
+        wait_for_task(testlooper_db, task, break_status=StatusEvent.COMPLETED)
+
+
+def test_run_tests_pan_suite(
+    testlooper_db, local_engine_agent, generate_repo, test_run_reactor, clear_tasks
+):
+    """When we get a run-all command (as happens when a  new commit is pushed), generate
+    results for every individual test."""
+    commit_hash = generate_repo["feature"][-1]
+    with testlooper_db.transaction():
+        commit = repo_schema.Commit.lookupUnique(hash=commit_hash)
+        env = test_schema.Environment(
+            name="test",
+            variables={},
+            image=Image.DockerImage(name="testlooper:latest", with_docker=True),
+        )
+
+        test_dict = {
+            "test_1": test_schema.Test(name="test_1", labels=[], path="test_path"),
+            "test_2": test_schema.Test(name="test_2", labels=[], path="test_path"),
+        }
+        test_suite = test_schema.TestSuite(
+            name="test",
+            environment=env,
+            tests=test_dict,
+            run_tests_command=mock_run_test_command,
+        )
+
+        task = engine_schema.TestRunTask.create(
+            test_results=None, runs_desired=1, commit=commit, suite=test_suite
+        )
+
+    wait_for_task(testlooper_db, task, break_status=StatusEvent.COMPLETED)
+
+    with testlooper_db.view():
+        results = test_schema.TestResults.lookupAll()
+        assert len(results) == 2
+        for result in results:
+            assert result.runs_completed == 1
+            assert result.runs_passed == 1

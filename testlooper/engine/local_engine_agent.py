@@ -238,7 +238,7 @@ class LocalEngineAgent:
                     test_results_to_run = future.result()
                     if not test_results_to_run:
                         self.logger.error(f"Filter {test_filter} matched no tests")
-                    if test_results_to_run:
+                    else:
                         with self.db.transaction():
                             for test_result in test_results_to_run:
                                 diff = desired_testing.runs_desired - test_result.runs_desired

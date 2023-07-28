@@ -164,7 +164,7 @@ def local_engine_agent(testlooper_db):
         yield agent
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="module")
 def make_and_clear_repo(testlooper_db):
     """Makes a demo repo, then destroys it after the test."""
     branches = {"dev": ["a", "b", "c"], "feature": ["a", "d", "e"]}
@@ -493,6 +493,7 @@ def clear_tasks(testlooper_db):
             test_schema.TestPlan,
             test_schema.TestSuite,
             test_schema.CommitTestDefinition,
+            test_schema.TestResults,
         ]:
             for task in task_type.lookupAll():
                 task.delete()
