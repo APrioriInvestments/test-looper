@@ -1,10 +1,49 @@
 import time
 from enum import Enum
 
-from object_database import Indexed, service_schema
-from typed_python import Dict, NamedTuple, OneOf, TupleOf
-
+from abc import ABC, abstractmethod
+from object_database import Index, Indexed, service_schema
+from typed_python import Alternative, Dict, NamedTuple, OneOf, TupleOf, ListOf
 from .schema_declarations import engine_schema, repo_schema, test_schema
+
+
+def dereference(self) -> "TaskBase":
+    """Finds the Task in the database and returns it. The complement to TaskBase.reference"""
+    if self.matches.TestPlanGeneration:
+        return engine_schema.TestPlanGenerationTask.lookupUnique(commit=self.commit)
+    elif self.matches.BuildDockerImage:
+        return engine_schema.BuildDockerImageTask.lookupUnique(
+            commit_and_image=(self.commit, self.image)
+        )
+    elif self.matches.TestSuiteGeneration:
+        return engine_schema.TestSuiteGenerationTask.lookupUnique(
+            commit_and_name=(self.commit, self.name)
+        )
+    elif self.matches.TestSuiteRun:
+        return engine_schema.TestSuiteRunTask.lookupUnique(uuid=self.uuid)
+    elif self.matches.CommitTestDefinitionGeneration:
+        return engine_schema.CommitTestDefinitionGenerationTask.lookupUnique(
+            commit=self.commit
+        )
+    elif self.matches.GenerateTestConfig:
+        return engine_schema.GenerateTestConfigTask.lookupUnique(commit=self.commit)
+    else:
+        raise TypeError(f"Unknown task type {self}")
+
+
+# Used to pass information about tasks between the dispatcher and the workers.
+TaskReference = Alternative(
+    "TaskReference",
+    TestPlanGeneration=dict(commit=repo_schema.Commit),
+    BuildDockerImage=dict(commit=repo_schema.Commit, image=str),
+    TestSuiteGeneration=dict(commit=repo_schema.Commit, name=str),
+    TestSuiteRun=dict(
+        uuid=str,
+    ),
+    CommitTestDefinitionGeneration=dict(commit=repo_schema.Commit),
+    GenerateTestConfig=dict(commit=repo_schema.Commit),
+    dereference=dereference,
+)
 
 
 class StatusEvent(Enum):
@@ -57,10 +96,15 @@ class Status:
         self._add_status(StatusEvent.COMPLETED, time.time())
 
 
-@engine_schema.define
-class TaskBase:
+class TaskBase(ABC):
     timeout_seconds = OneOf(float, None)
     _status_history = TupleOf(StatusChange)
+
+    @abstractmethod
+    def reference(self) -> TaskReference:
+        """Must return a TaskReference with enough information to run lookupUnique on the
+        Task. This is the complement to TaskReference.lookup()"""
+        pass
 
     @classmethod
     def create(cls, *args, when=None, **kwargs):
@@ -118,10 +162,12 @@ class TestPlanGenerationTask(TaskBase):
 
     commit = Indexed(repo_schema.Commit)
 
+    def reference(self):
+        return TaskReference.TestPlanGeneration(commit=self.commit)
 
-@engine_schema.define
-class ResultBase:
-    task = engine_schema.TaskBase
+
+class ResultBase(ABC):
+    task = TaskBase
     error = str
 
 
@@ -143,6 +189,10 @@ class BuildDockerImageTask(TaskBase):
     environment_name = str
     dockerfile = str  # path to Dockerfile or its directory
     image = str  # image name and/or tag
+    commit_and_image = Index("commit", "image")
+
+    def reference(self):
+        return TaskReference.BuildDockerImage(commit=self.commit, image=self.image)
 
 
 @engine_schema.define
@@ -160,8 +210,12 @@ class TestSuiteGenerationTask(TaskBase):
     # map of build name to build path, optional
     dependencies = OneOf(Dict(str, str), None)
     name = str
+    commit_and_name = Index("commit", "name")
     list_tests_command = str
     run_tests_command = str
+
+    def reference(self):
+        return TaskReference.TestSuiteGeneration(commit=self.commit, name=self.name)
 
 
 @engine_schema.define
@@ -173,7 +227,7 @@ class TestSuiteGenerationResult(ResultBase):
 
 @engine_schema.define
 class TestRunTask(TaskBase):
-    """either run a specific test on a specific commit, or all tests
+    """DEPRECATED - either run a specific test on a specific commit, or all tests
     for a suite on a specific commit."""
 
     # this probably needs a Result to distinguish task failures from test failures.
@@ -182,6 +236,24 @@ class TestRunTask(TaskBase):
     # environment = Indexed(test_schema.Environment)
     commit = Indexed(repo_schema.Commit)
     suite = Indexed(test_schema.TestSuite)
+    commit_suite_and_run = Index("commit", "suite", "test_results")
+
+    def reference(self):
+        return TaskReference.TestRun(commit=self.commit, suite=self.suite)
+
+
+@engine_schema.define
+class TestSuiteRunTask(TaskBase):
+    """A single run of some, or all, tests in a suite."""
+
+    # environment = Indexed(test_schema.Environment)
+    uuid = Indexed(str)
+    commit = Indexed(repo_schema.Commit)
+    suite = Indexed(test_schema.TestSuite)
+    test_node_ids = OneOf(None, ListOf(str))
+
+    def reference(self):
+        return TaskReference.TestSuiteRun(uuid=self.uuid)
 
 
 @engine_schema.define
@@ -189,12 +261,18 @@ class CommitTestDefinitionGenerationTask(TaskBase):
     commit = Indexed(repo_schema.Commit)
     test_plan = test_schema.TestPlan
 
+    def reference(self):
+        return TaskReference.CommitTestDefinitionGeneration(commit=self.commit)
+
 
 @engine_schema.define
 class GenerateTestConfigTask(TaskBase):
     # test_config = repo_schema.TestConfig
-    commit = repo_schema.Commit
+    commit = Indexed(repo_schema.Commit)
     config_path = str  # relative to the repo root
+
+    def reference(self):
+        return TaskReference.GenerateTestConfig(commit=self.commit)
 
 
 @engine_schema.define
@@ -208,3 +286,13 @@ class GitWatcherConfig:
     port = int
     hostname = str
     log_level = int
+
+
+@engine_schema.define
+class MessageBusConfig:
+    # NB this is a duplicate of GitWatcherConfig
+    service = Indexed(service_schema.Service)
+    port = int
+    hostname = str
+    log_level = int
+    path_to_git_repo = str

@@ -81,9 +81,8 @@ class LocalEngineAgent:
         self.source_control_store = source_control_store
         self.artifact_store = artifact_store
         self.clock = clock
-        self.logger = setup_logger(__name__, level=logging.INFO)
+        self.logger = setup_logger(__name__, level=logging.ERROR)
         self.threads = {}
-        self.logger.setLevel(logging.INFO)
         self.logger.info("Initialized LocalEngineAgent")
         self.db.subscribeToSchema(engine_schema, repo_schema, test_schema)
 
@@ -226,6 +225,10 @@ class LocalEngineAgent:
                         # TODO horrible horrible
                         tasks_to_run.append((commit, desired_testing, all_test_results))
 
+        # so we make a list of commit + desired_testing + test results
+        # then we use those test results and trim them down using our filter
+        # then we compare the runs_desired to the number of runs already done.
+        # then we make the Task.
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             for commit, desired_testing, all_test_results in tasks_to_run:
                 test_filter = desired_testing.filter

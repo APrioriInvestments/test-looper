@@ -2,7 +2,7 @@ from collections import defaultdict
 from functools import partial
 import logging
 
-from object_database import ServiceBase
+from object_database import ServiceBase, service_schema
 import object_database.web.cells as cells
 
 from testlooper.utils import setup_logger
@@ -19,7 +19,7 @@ class SchemaMonitorService(ServiceBase):
     Lets you check performance, ODB model coherency, etc.
     """
 
-    schemas = [engine_schema, test_schema, repo_schema, ui_schema]
+    schemas = [engine_schema, test_schema, repo_schema, ui_schema, service_schema]
 
     def initialize(self):
         logger.info("Initializing SchemaMonitorService")

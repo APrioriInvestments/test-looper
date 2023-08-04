@@ -173,5 +173,11 @@ def parse_test_filter_within_view(test_filter, all_test_results):
     return filtered_tests
 
 
+def get_node_id(test):
+    """A test has a path and a name - the node_id used by pytest used in specifying which
+    tests to run is a concatenation of these two."""
+    return test.path + "::" + test.name
+
+
 def filter_keys(d, cls):
     return {k: v for k, v in d.items() if k in cls.__annotations__}

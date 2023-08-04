@@ -22,7 +22,7 @@ from testlooper.utils import setup_logger
 __all__ = ["Git"]
 
 
-logger = setup_logger(__name__, level=logging.INFO)
+logger = setup_logger(__name__, level=logging.ERROR)
 
 sha_pattern = re.compile("^[a-f0-9]{40}$")
 

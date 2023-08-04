@@ -35,14 +35,17 @@ from object_database.web.ActiveWebService import ActiveWebService
 from object_database.web.ActiveWebServiceSchema import active_webservice_schema
 from object_database.web.LoginPlugin import LoginIpPlugin
 
+from testlooper.dispatcher import DispatcherService
 from testlooper.engine.git_watcher_service import GitWatcherService
-from testlooper.engine.local_engine_service import LocalEngineService
+
+# from testlooper.engine.local_engine_service import LocalEngineService
 from testlooper.engine.schema_monitor import SchemaMonitorService
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.service import TestlooperService
 from testlooper.utils import TL_SERVICE_NAME, setup_logger
 from testlooper.vcs import Git
+from testlooper.worker import WorkerService
 
 rng = default_rng()
 logger = setup_logger(__name__, level=logging.INFO)
@@ -55,6 +58,7 @@ ODB_PORT = 8021
 LOGLEVEL_NAME = "ERROR"
 GIT_WATCHER_PORT = 9999
 REPO_PATH = "."
+NUM_WORKERS = 16
 
 
 def main(
@@ -123,21 +127,45 @@ def main(
                     GitWatcherService, "GitWatcherService", target_count=0
                 )
 
+                dispatcher = ServiceManager.createOrUpdateService(
+                    DispatcherService, "DispatcherService", target_count=0
+                )
+
+                # Worker
+                _ = ServiceManager.createOrUpdateService(
+                    WorkerService, "WorkerService", target_count=0
+                )
+
             GitWatcherService.configure(
-                database, git_service, hostname="localhost", port=git_watcher_port
+                database,
+                git_service,
+                hostname="localhost",
+                port=git_watcher_port,
+                level_name="ERROR",
+            )
+
+            DispatcherService.configure(
+                database,
+                dispatcher,
+                hostname="localhost",
+                port=8420,
+                log_level_name="INFO",
+                path_to_git_repo=repo_path,
             )
 
             with database.transaction():
                 ServiceManager.startService("ActiveWebService", 1)
+                ServiceManager.startService("DispatcherService", 1)
+                ServiceManager.startService("WorkerService", NUM_WORKERS)
                 # TL frontend - tests and repos
                 _ = ServiceManager.createOrUpdateService(
                     TestlooperService, TL_SERVICE_NAME, target_count=1
                 )
                 # local engine - will eventually do all the below work.
                 _ = engine_schema.LocalEngineConfig(path_to_git_repo=repo_path)
-                _ = ServiceManager.createOrUpdateService(
-                    LocalEngineService, "LocalEngineService", target_count=1
-                )
+                # _ = ServiceManager.createOrUpdateService(
+                #     LocalEngineService, "LocalEngineService", target_count=1
+                # )
                 # git watcher - receives post requests from git webhooks and
                 # updates ODB accordingly
                 ServiceManager.startService("GitWatcherService", 1)

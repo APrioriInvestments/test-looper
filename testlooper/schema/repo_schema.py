@@ -338,7 +338,7 @@ class Commit:
             if test_result.runs_failed:
                 # gotta bump the runs_desired manually too
                 test_result.runs_desired += 1
-                engine_schema.TestRunTask.create(
+                engine_schema.TestRunTask.create(  # TODO update
                     test_results=test_result,
                     runs_desired=1,
                     commit=self,
