@@ -19,7 +19,17 @@ HTTP and ODB (`object_database`, used for backend storage, see [here](https://gi
 and a path to a local git repository and a testlooper config file. When run, it will scan the repo
 to a given commit depth and then watch for any pushed changes, and provide a UI on the specified
 port to run and view tests. The git repo itself must have a post-receive hook capable of POSTing to
-the port testlooper is using to track git changes.
+the port testlooper is using to track git changes. To run locally it should be sufficient to run
+`pip install -e '.[dev]'`. If `run_local.py` shows no errors, but localhost:8001 shows only a blank
+screen, it is likely that you have a local installation of ODBs cells framework that must be
+reinstalled with the following command from the ODB repo root:
+```
+cd object_database/web/content && npm install && npm run build
+```
+
+If this fails, you likely have local versions of `typed_python` and ODB installed, and should `pip
+install .` for `typed_python`, then `object_database`, then run the NPM command. NB: changing the
+order will cause things to break.
 
 
 For the details of the config file, see [here](./docs/specs/Repo_Configuration_Spec.md).

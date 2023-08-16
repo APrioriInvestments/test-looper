@@ -15,7 +15,7 @@ authors = [
 ]
 license = {text = "Apache-2.0"}
 keywords = ["testing"]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "object_database @ git+https://github.com/APrioriInvestments/object_database.git@b047bdc2a8dabc5d954599a441b3da23a83b50d9#egg=object_database=999.999.999",
     "PyYAML ~= 6.0",

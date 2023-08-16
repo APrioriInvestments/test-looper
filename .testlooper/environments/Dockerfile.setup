@@ -2,7 +2,7 @@
 # docker build -t testlooper:latest -f .testlooper/environments/Dockerfile.setup .
 # could use env vars instead to make this more flexible
 
-FROM python:3.9
+FROM python:3.10
 
 WORKDIR /app
 
