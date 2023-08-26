@@ -12,8 +12,8 @@ environments:
     linux-pytest:
         image:
             docker:
-                # dockerfile: .testlooper/environments/linux-pytest/Dockerfile
-                image: testlooper:latest
+                dockerfile: .testlooper/environments/Dockerfile.linux-pytest
+                # image: testlooper:latest
         variables:
             PYTHONPATH: ${REPO_ROOT}
             TP_COMPILER_CACHE: /tp_compiler_cache
@@ -25,7 +25,7 @@ environments:
     # native linux image necessary for running unit-tests that need to boot docker containers.
     linux-native:
         image:
-            base_ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
+            aws-ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
         min-ram-gb: 10
         custom-setup: |
             sudo apt-get --yes install python3.8-venv

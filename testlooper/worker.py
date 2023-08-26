@@ -226,10 +226,14 @@ class WorkerService(ServiceBase):
                 commit_hash = commit.hash
                 command = commit.test_config.command
                 env_vars = commit.test_config.variables
-                image_name = commit.test_config.image_name
+                image_name = (
+                    commit.test_config.image_name
+                )  # assumes that the image has been built already
                 test_plan = test_schema.TestPlan.lookupUnique(commit=commit)
                 if test_plan is not None:
                     raise ValueError(f"Test plan already exists for commit {commit_hash}")
+                if image_name is None:
+                    raise ValueError(f"Docker build task not completed for {commit_hash}")
 
             # Run test-plan generation in a Docker container.
             # Requires that docker has access to /tmp/
@@ -323,7 +327,15 @@ class WorkerService(ServiceBase):
                     commit_hash, tmpdir
                 )
                 output = subprocess.run(
-                    ["docker", "build", "-t", image_name, "-f", dockerfile, tmpdir],
+                    [
+                        "docker",
+                        "build",
+                        "-t",
+                        f"{image_name}:{commit_hash}",
+                        "-f",
+                        os.path.join(tmpdir, dockerfile),
+                        tmpdir,
+                    ],
                     capture_output=True,
                 )
                 if output.returncode != 0:
@@ -338,7 +350,7 @@ class WorkerService(ServiceBase):
             return False
 
         with self.db.transaction():
-            task.completed(self.clock.time())
+            task.completed(time.time())
         return True
 
     def _generate_test_suite(self, task) -> bool:
@@ -365,6 +377,7 @@ class WorkerService(ServiceBase):
             # env_name = env.name
             env_image = env.image
             env_image_name = env_image.name
+            env_commit_hash = env.commit_hash
             env_variables = env.variables
             # dependencies = task.dependencies
             list_tests_command = task.list_tests_command
@@ -392,7 +405,7 @@ class WorkerService(ServiceBase):
                 client = docker.from_env()
                 volumes = {tmpdir: {"bind": mount_dir, "mode": "rw"}}
                 container = client.containers.run(
-                    env_image_name,
+                    f"{env_image_name}:{env_commit_hash}",
                     [list_tests_command],
                     environment=env,
                     working_dir=mount_dir,
@@ -405,6 +418,8 @@ class WorkerService(ServiceBase):
                 container.remove(force=True)
 
             if output is not None:
+                # TODO handle better if this is an error.
+                # current exception is 'str object has no attribute 'get'', which is naff.
                 # parse the output into Tests.
                 test_dict = self._parse_list_tests_yaml(output)
                 with self.db.transaction():
@@ -490,7 +505,7 @@ class WorkerService(ServiceBase):
 
                     # run the command in docker
                     self._run_docker_command(
-                        image_name,
+                        f"{image_name}:{commit_hash}",
                         command,
                         volumes={
                             tmp_commit_dir: {"bind": mount_dir, "mode": "rw"},
@@ -634,7 +649,9 @@ class WorkerService(ServiceBase):
             with self.db.transaction():
                 if not test_schema.CommitTestDefinition.lookupUnique(commit=commit):
                     commit_definition = test_schema.CommitTestDefinition(commit=commit)
-                    self._logger.info(f"Created CommitTestDefinition for commit {commit.hash}")
+                    self._logger.debug(
+                        f"Created CommitTestDefinition for commit {commit.hash}"
+                    )
                     commit_definition.set_test_plan(test_plan)
                     task.completed(time.time())
                 else:
@@ -686,6 +703,8 @@ class WorkerService(ServiceBase):
             with self.db.view():
                 config = repo_schema.TestConfig.lookupUnique(config_str=config_file_contents)
 
+            docker_task = None
+
             if config is None:
                 with self.db.transaction():
                     config = repo_schema.TestConfig(
@@ -694,17 +713,17 @@ class WorkerService(ServiceBase):
                     config.parse_config()
                     if docker_config := config.image.get("docker"):
                         if docker_config.get("dockerfile"):
-                            _ = engine_schema.BuildDockerImageTask.create(
+                            config_name = f"{config.name}.config"
+                            docker_task = engine_schema.BuildDockerImageTask.create(
                                 commit=commit,
-                                environment_name="TODO",
                                 dockerfile=docker_config["dockerfile"],
-                                image=config.name,
+                                image=config_name,
                             )
-                            config.image_name = (
-                                config.name
-                            )  # for now, if building new docker images, use the repo name
+                            config.image_name = config_name
                         else:
-                            config.image_name = docker_config["image"]
+                            config.image_name = docker_config[
+                                "image"
+                            ]  # TODO add the commit as a tag.
                     else:
                         raise ValueError("No docker image specified in config.")
         except Exception as e:
@@ -715,7 +734,9 @@ class WorkerService(ServiceBase):
 
         with self.db.transaction():
             commit.test_config = config
-            engine_schema.TestPlanGenerationTask.create(commit=commit)
+            engine_schema.TestPlanGenerationTask.create(
+                commit=commit, dependencies=[docker_task] if docker_task else []
+            )
             task.completed(time.time())
         return True
 

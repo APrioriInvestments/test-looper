@@ -3,7 +3,7 @@ from enum import Enum
 
 from abc import ABC, abstractmethod
 from object_database import Index, Indexed, service_schema
-from typed_python import Alternative, Dict, NamedTuple, OneOf, TupleOf, ListOf
+from typed_python import Alternative, NamedTuple, OneOf, TupleOf, ListOf
 from .schema_declarations import engine_schema, repo_schema, test_schema
 
 
@@ -97,8 +97,9 @@ class Status:
 
 
 class TaskBase(ABC):
-    timeout_seconds = OneOf(float, None)
+    timeout_seconds = OneOf(None, float)
     _status_history = TupleOf(StatusChange)
+    dependencies = ListOf(object)  # these should be TaskBases
 
     @abstractmethod
     def reference(self) -> TaskReference:
@@ -186,9 +187,11 @@ class TestPlanGenerationResult(ResultBase):
 @engine_schema.define
 class BuildDockerImageTask(TaskBase):
     commit = Indexed(repo_schema.Commit)
-    environment_name = str
+    # environment_name = str
     dockerfile = str  # path to Dockerfile or its directory
-    image = str  # image name and/or tag
+    image = (
+        str  # image name and/or tag. Normally <repo_name>.config or <repo_name>.listtests etc
+    )
     commit_and_image = Index("commit", "image")
 
     def reference(self):
@@ -207,8 +210,6 @@ class BuildDockerImageResult(ResultBase):
 class TestSuiteGenerationTask(TaskBase):
     commit = Indexed(repo_schema.Commit)  # TODO this index is likely temporary
     environment = test_schema.Environment
-    # map of build name to build path, optional
-    dependencies = OneOf(Dict(str, str), None)
     name = str
     commit_and_name = Index("commit", "name")
     list_tests_command = str

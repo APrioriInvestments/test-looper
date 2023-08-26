@@ -190,23 +190,12 @@ def main(
                 server.wait()
 
 
-# def add_to_dict(directory, input_dict):
-#     """Walk a dir, adding all files to a dict."""
-#     for filename in os.listdir(directory):
-#         new_path = os.path.join(directory, filename)
-#         if os.path.isfile(new_path):
-#             with open(new_path) as file:
-#                 input_dict[new_path] = file.read()
-#         elif os.path.isdir(new_path):
-#             add_to_dict(new_path, input_dict)
-
-
 def scan_repo(
     database: DatabaseConnection,
     post_url: str,
     path_to_repo: str,
     path_to_tl_config=".testlooper/config.yaml",
-    max_depth=5,
+    max_depth=3,
     # branch_prefix="will",  # FIXME a temp shim to make rerunning quicker
 ) -> Git:
     """
@@ -236,7 +225,7 @@ def scan_repo(
 
     for branch_name in git_repo.list_branches():
         # TODO remove
-        if branch_name not in ("will-qol", "will-deliberately-failing-tests"):
+        if branch_name not in ("will-deliberately-failing-tests"):
             continue
         # if not branch_name.startswith(branch_prefix):
         #     continue

@@ -40,7 +40,7 @@ environments:
     # native linux image necessary for running unit-tests that need to boot docker containers.
     linux-native:
         image:
-            base_ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
+            aws-ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
         min-ram-gb: 10
         custom-setup: |
             sudo apt-get --yes install python3.8-venv
@@ -61,7 +61,7 @@ suites:
 
     pytest-docker:
         kind: unit
-        environment: linux-native
+        environment: linux-pytest
         dependencies:
         timeout:
         list-tests: |
@@ -304,7 +304,7 @@ environments:
     # native linux image necessary for running unit-tests that need to boot docker containers.
     linux-native:
         image:
-            base_ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
+            aws-ami: ami-0XXXXXXXXXXXXXXXX  # ubuntu-20.04-ami
         min-ram-gb: 10
         custom-setup: |
             sudo apt-get --yes install python3.8-venv
@@ -325,7 +325,7 @@ suites:
 
     pytest-docker:
         kind: unit
-        environment: linux-native
+        environment: linux-pytest
         dependencies:
         list-tests: |
             python .testlooper/collect_pytest_tests.py -m 'docker'

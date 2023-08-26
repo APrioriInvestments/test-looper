@@ -1,4 +1,5 @@
 import logging
+from threading import RLock
 import time
 import uuid
 
@@ -54,6 +55,7 @@ class DispatcherService(ServiceBase):
             Reactor(self.db, self.generate_test_suite_runs)
         )  # TODO this won't scale
         self.task_queue = deque()
+        self._lock = RLock()
         # self._start_bus()
 
     def enqueue_tasks(self):
@@ -65,13 +67,29 @@ class DispatcherService(ServiceBase):
 
         TODO - better guards on double-processing. Probably the worker sends a 'no ty' message
         and the task gets added back.
+
+        Currently there is a race condition and tasks get multiply added.
         """
         for task_type in DISPATCHED_TASKS:
+            # view opening/closing is key here to avoid double-queueing
             with self.db.view():
                 tasks = task_type.lookupAll()
-                for task in tasks:
-                    if task not in self.task_queue and task.status[0] is StatusEvent.CREATED:
-                        self.task_queue.append(task)
+
+            for task in tasks:
+                self._lock.acquire()
+                if task not in self.task_queue:
+                    with self.db.view():
+                        if task.status[0] is StatusEvent.CREATED:
+                            # this assumes implicitly that the dependency is in
+                            # DISPATCHED_TASKS, so the Reactor will wake up and check again
+                            # when the dependency is done.
+                            for dep in task.dependencies:
+                                if dep.status[0] is not StatusEvent.COMPLETED:
+                                    break
+                            else:
+                                # only executes if all dependencies are completed
+                                self.task_queue.append(task)
+                self._lock.release()
 
     def generate_test_suite_runs(self):
         """Look for new or updated CommitDesiredTesting objects, and generate TestSuiteRunTasks
@@ -217,7 +235,8 @@ class DispatcherService(ServiceBase):
         by processing them into a form such that the Worker can run them most effectively.
 
         To start with, don't batch stuff up. Just make the reference to the task, and send it
-        to the worker.
+        to the worker. Currently has a race condition between task dispatch and task start
+        that must be guarded against (as best possible).
         """
         with self.reactorsRunning():
             while not shouldStop.is_set():
@@ -226,12 +245,18 @@ class DispatcherService(ServiceBase):
                     self.bus_is_active = True
                 if self._free_workers and self.task_queue:
                     # print('tasks in queue:', '\n'.join(map(str, self.task_queue)))
+                    self._lock.acquire()
                     worker = self._free_workers.pop()
                     task = self.task_queue.popleft()
-                    self._logger.info(f"Assigning task {task} to worker {worker}")
                     with self.db.view():
+                        status = task.status[0]
                         payload = task.reference()
-                    self.bus.sendMessage(worker, Request.v1(payload=payload))
+                    if status is not StatusEvent.CREATED:
+                        self._logger.info(f"Task {task} was already started, skipping...")
+                    else:
+                        self._logger.info(f"Assigning task {task} to worker {worker}")
+                        self.bus.sendMessage(worker, Request.v1(payload=payload))
+                    self._lock.release()
                 else:
                     self._logger.debug("No free workers or no tasks to assign, waiting...")
                     time.sleep(0.1)

@@ -1,6 +1,6 @@
 version: 1.0
 name: testlooper
-primary-branch: will-qol
+primary-branch: will-deliberately-failing-tests
 image:
      docker:
        dockerfile: .testlooper/environments/Dockerfile.setup

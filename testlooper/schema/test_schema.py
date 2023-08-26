@@ -18,7 +18,6 @@ from ..utils import (
 )
 from .schema_declarations import engine_schema, repo_schema, test_schema
 
-
 logger = setup_logger(__name__, level=logging.INFO)
 
 TestFilter = NamedTuple(
@@ -247,50 +246,107 @@ class CommitTestDefinition:
         """Act on the test plan. Read the environments, builds, and suites,
         and generate Tasks accordingly.
         """
-
         version = test_plan_dict["version"]
         assert version == 1, f"Unsupported test_plan version {version}"
+        docker_build_tasks = []
         if "environments" in test_plan_dict:
-            pass  # TODO
+            # build the Environment object and corresponding Docker image, if required.
+            environments = test_plan_dict["environments"]
+            for env_name, env_info in environments.items():
+                env, docker_build_task = self.generate_environment(env_name, env_info)
+                if docker_build_task:
+                    docker_build_tasks.append(docker_build_task)
+        else:
+            raise ValueError('No "environments" key in test_plan')
+
         if "builds" in test_plan_dict:
             pass  # TODO
         if "suites" in test_plan_dict:
-            # suites: suite_name: kind
             suites = test_plan_dict["suites"]
             for suite_name, suite in suites.items():
                 kind = suite["kind"]
                 if kind != "unit":
                     raise NotImplementedError(f"Unsupported suite kind {kind}")
                 environment = suite["environment"]
-                # FIXME: this environment should match a previously defined env, but
-                # this still needs building so we generate a fresh one.
+                env = test_schema.Environment.lookupUnique(
+                    name_and_hash=(environment, self.commit.hash)
+                )
 
-                env = test_schema.Environment.lookupUnique(name=environment)
+                # FIXME temp: skip suites with linux-native as AWS is unsupported
                 if env is None:
-                    env = test_schema.Environment(
-                        name=environment,
-                        variables={},
-                        image=Image.DockerImage(
-                            name="testlooper:latest",
-                            with_docker=True,
-                        ),
-                        min_ram_gb=0,
-                        min_cores=0,
-                        custom_setup="",
-                    )
-                dependencies = suite["dependencies"]
+                    continue
+
+                # TODO move these build deps somewhere else
+                # dependencies = suite["dependencies"]
                 list_tests = suite["list-tests"]
                 run_tests = suite["run-tests"]
                 timeout = suite["timeout"]
                 engine_schema.TestSuiteGenerationTask.create(
                     commit=self.commit,
                     environment=env,
-                    dependencies=dependencies,
+                    dependencies=docker_build_tasks,
                     name=suite_name,
                     timeout_seconds=timeout,
                     list_tests_command=list_tests,
                     run_tests_command=run_tests,
                 )
+
+    def generate_environment(self, env_name, env_info):
+        try:
+            # process the image field
+            env_image = None
+            docker_build_task = None
+            image = env_info["image"]
+            if "docker" in image:
+                docker_info = image["docker"]
+                if "dockerfile" in docker_info:
+                    dockerfile = docker_info["dockerfile"]
+                    with_docker = (
+                        bool(docker_info["with_docker"])
+                        if "with_docker" in docker_info
+                        else False
+                    )
+                    docker_build_task = engine_schema.BuildDockerImageTask.create(
+                        dockerfile=dockerfile,
+                        commit=self.commit,
+                        image=env_name,
+                    )
+                    env_image = Image.DockerImage(name=env_name, with_docker=with_docker)
+                elif "image" in docker_info:
+                    env_image = Image.DockerImage(name=docker_info["image"])
+            elif "aws-ami" in image:
+                raise NotImplementedError("AWS AMI not yet supported")
+            else:
+                raise ValueError(f"Unknown image type {image}")
+
+            variables = env_info["variables"] if "variables" in env_info else {}
+            variables = {x: str(y) for x, y in variables.items()}
+            min_ram_gb = float(env_info["min_ram_gb"]) if "min_ram_gb" in env_info else 0
+            min_cores = int(env_info["min_cores"]) if "min_cores" in env_info else 0
+            custom_setup = env_info["custom_setup"] if "custom_setup" in env_info else ""
+
+        except KeyError as e:
+            raise ValueError(f"Environment {env_name} is missing required key {e}")
+
+        except NotImplementedError as e:
+            logger.error(f"Environment {env_name} is not yet supported: {e}")
+            return None, None
+
+        assert (
+            test_schema.Environment.lookupUnique(name_and_hash=(env_name, self.commit.hash))
+            is None
+        ), f"Environment {env_name} already exists for hash {self.commit.hash}"
+
+        env = test_schema.Environment(
+            name=env_name,
+            commit_hash=self.commit.hash,
+            variables=variables,
+            image=env_image,
+            min_ram_gb=min_ram_gb,
+            min_cores=min_cores,
+            custom_setup=custom_setup,
+        )
+        return env, docker_build_task
 
 
 Image = Alternative(
@@ -305,11 +361,13 @@ class Environment:
     """An environment where tests may run"""
 
     name = Indexed(str)
+    commit_hash = Indexed(str)
     variables = ConstDict(str, str)  # Environment Variables
     image = Image
     min_ram_gb = float
     min_cores = int
     custom_setup = str  # additional bash commands to set up the environment
+    name_and_hash = Index("name", "commit_hash")
 
 
 @test_schema.define
