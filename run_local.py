@@ -147,6 +147,7 @@ def main(
 
             # overworked
             log_path = os.path.join(tmp_dirname, "log")
+            print("logs stored at ", log_path)
             DispatcherService.configure(
                 database,
                 dispatcher,

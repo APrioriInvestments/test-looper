@@ -1,5 +1,7 @@
 """An interface to either local storage or s3, based on fsspec."""
 import fsspec
+import os
+
 from testlooper.schema.engine_schema import ArtifactStoreConfig
 
 
@@ -9,6 +11,7 @@ class ArtifactStore:
 
         Args:
             storage_type: Either 'local' or 's3'
+            # TODO chuck the filesystem in directly
             path (optional): The root directory for the storage. Defaults to '.'
             region (optional): The region to use, if using s3. Seems like an antipattern to
                 have it here.
@@ -34,6 +37,9 @@ class ArtifactStore:
 
     def save(self, filename, data):
         fs = self.get_fs()
+        full_path = os.path.join(self.path, filename)
+        dir_path = fs._parent(full_path)
+        fs.mkdir(dir_path, exist_ok=True)
         with fs.open(self.path + "/" + filename, "w") as f:
             f.write(data)
 

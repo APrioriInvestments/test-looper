@@ -33,6 +33,12 @@ from testlooper.vcs import Git
 
 
 @dataclass
+class CommandOutput:
+    out: str
+    err: str
+
+
+@dataclass
 class Result:
     nodeid: str
     lineno: int
@@ -475,6 +481,7 @@ class WorkerService(ServiceBase):
             commit = task.commit
             commit_hash = commit.hash
             suite = task.suite
+            suite_name = suite.name
             image_name = suite.environment.image.name
             command = suite.run_tests_command
             test_node_ids = (
@@ -507,7 +514,7 @@ class WorkerService(ServiceBase):
                         )
 
                     # run the command in docker
-                    logs = self._run_docker_command(
+                    output = self._run_docker_command(
                         f"{image_name}:{commit_hash}",
                         command,
                         volumes={
@@ -517,8 +524,14 @@ class WorkerService(ServiceBase):
                         env=env,
                         working_dir=mount_dir,
                     )
-                    print(logs)
+                    self.artifact_store.save(
+                        f"test_run_{suite_name}_{commit_hash}_stdout.txt", output.out
+                    )
+                    self.artifact_store.save(
+                        f"test_run_{suite_name}_{commit_hash}_stderr.txt", output.err
+                    )
                     # evaluate the results.
+                    print("written")
                     self._evaluate_test_results(
                         path_to_test_output=os.path.join(tmp_test_dir, "test_output.json"),
                         task=task,
@@ -546,7 +559,9 @@ class WorkerService(ServiceBase):
         with open(path_to_input_file, "w") as flines:
             flines.write("\n".join(test_node_ids))
 
-    def _run_docker_command(self, image_name:str, command:str, volumes: Dict, env: Dict, working_dir: str) -> str:
+    def _run_docker_command(
+        self, image_name: str, command: str, volumes: Dict, env: Dict, working_dir: str
+    ) -> CommandOutput:
         client = docker.from_env()
         container = client.containers.run(
             image_name,
@@ -554,19 +569,18 @@ class WorkerService(ServiceBase):
             volumes=volumes,
             environment=env,
             working_dir=working_dir,
-            detach = True,
+            detach=True,
             stdout=True,
-            stderr=True
+            stderr=True,
         )
         container.wait()
-        
-        out = container.logs(stdout=True, stderr=False).decode('utf-8')
-        err = container.logs(stdout=False, stderr=True).decode('utf-8')
-        print('stdout:', out)
-        print()
-        print()
-        print('stderr:', err)
+
+        out = container.logs(stdout=True, stderr=False).decode("utf-8")
+        err = container.logs(stdout=False, stderr=True).decode("utf-8")
+
         container.remove(force=True)
+
+        return CommandOutput(out=out, err=err)
 
     def _evaluate_test_results(self, path_to_test_output: str, task):
         """Parse the test_output, which should be a json file adhering to the TestRunOutput
@@ -750,10 +764,6 @@ class WorkerService(ServiceBase):
             )
             task.completed(time.time())
         return True
-    
-
-
-
 
     def _start_task(self, task, start_time) -> bool:
         with self.db.transaction():
