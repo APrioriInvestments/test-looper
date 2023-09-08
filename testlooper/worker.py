@@ -554,22 +554,16 @@ class WorkerService(ServiceBase):
             volumes=volumes,
             environment=env,
             working_dir=working_dir,
-            # remove=Trsue,
             detach = True,
             stdout=True,
             stderr=True
         )
         container.wait()
         
-        output = container.attach(stdout=True, stream=True, logs=True)
-        for line in output:
-            print(line) 
-
-
         out = container.logs(stdout=True, stderr=False)
         err = container.logs(stdout=False, stderr=True)
-        print('stdout', out)
-        # print('stderr', err)
+        print('stdout', out.decode('utf-8'))
+        print('stderr', err.decode('utf-8'))
         container.remove(force=True)
 
     def _evaluate_test_results(self, path_to_test_output: str, task):

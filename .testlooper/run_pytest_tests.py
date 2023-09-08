@@ -10,7 +10,7 @@ import sys
 from typing import Optional
 
 
-def run_pytest_json_report(args) -> Optional[str]:
+def run_pytest_json_report(args) -> subprocess.CompletedProcess:
     test_output = os.environ.get("TEST_OUTPUT")
     test_input = os.environ.get("TEST_INPUT")
 
@@ -30,12 +30,7 @@ def run_pytest_json_report(args) -> Optional[str]:
         command.extend(test_cases)
 
     command.extend(args)
-    # try:
     output = subprocess.run(command, capture_output=True)
-    # except subprocess.CalledProcessError as e:
-    #     output = e.output
-    #     print(f"Error occurred: {e}")
-    #     return None
     return output
 
 
