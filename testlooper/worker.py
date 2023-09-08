@@ -560,10 +560,12 @@ class WorkerService(ServiceBase):
         )
         container.wait()
         
-        out = container.logs(stdout=True, stderr=False)
-        err = container.logs(stdout=False, stderr=True)
-        print('stdout', out.decode('utf-8'))
-        print('stderr', err.decode('utf-8'))
+        out = container.logs(stdout=True, stderr=False).decode('utf-8')
+        err = container.logs(stdout=False, stderr=True).decode('utf-8')
+        print('stdout:', out)
+        print()
+        print()
+        print('stderr:', err)
         container.remove(force=True)
 
     def _evaluate_test_results(self, path_to_test_output: str, task):

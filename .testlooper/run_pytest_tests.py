@@ -30,7 +30,7 @@ def run_pytest_json_report(args) -> subprocess.CompletedProcess:
         command.extend(test_cases)
 
     command.extend(args)
-    output = subprocess.run(command, capture_output=True)
+    output = subprocess.run(command, capture_output=True, text=True)
     return output
 
 
