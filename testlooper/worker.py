@@ -507,7 +507,7 @@ class WorkerService(ServiceBase):
                         )
 
                     # run the command in docker
-                    self._run_docker_command(
+                    logs = self._run_docker_command(
                         f"{image_name}:{commit_hash}",
                         command,
                         volumes={
@@ -517,7 +517,7 @@ class WorkerService(ServiceBase):
                         env=env,
                         working_dir=mount_dir,
                     )
-
+                    print(logs)
                     # evaluate the results.
                     self._evaluate_test_results(
                         path_to_test_output=os.path.join(tmp_test_dir, "test_output.json"),
@@ -546,7 +546,7 @@ class WorkerService(ServiceBase):
         with open(path_to_input_file, "w") as flines:
             flines.write("\n".join(test_node_ids))
 
-    def _run_docker_command(self, image_name, command, volumes, env, working_dir):
+    def _run_docker_command(self, image_name:str, command:str, volumes: Dict, env: Dict, working_dir: str) -> str:
         client = docker.from_env()
         container = client.containers.run(
             image_name,
@@ -554,10 +554,22 @@ class WorkerService(ServiceBase):
             volumes=volumes,
             environment=env,
             working_dir=working_dir,
-            remove=False,
-            detach=True,
+            # remove=Trsue,
+            detach = True,
+            stdout=True,
+            stderr=True
         )
         container.wait()
+        
+        output = container.attach(stdout=True, stream=True, logs=True)
+        for line in output:
+            print(line) 
+
+
+        out = container.logs(stdout=True, stderr=False)
+        err = container.logs(stdout=False, stderr=True)
+        print('stdout', out)
+        # print('stderr', err)
         container.remove(force=True)
 
     def _evaluate_test_results(self, path_to_test_output: str, task):
@@ -742,6 +754,10 @@ class WorkerService(ServiceBase):
             )
             task.completed(time.time())
         return True
+    
+
+
+
 
     def _start_task(self, task, start_time) -> bool:
         with self.db.transaction():

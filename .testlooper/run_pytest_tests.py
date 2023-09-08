@@ -30,19 +30,20 @@ def run_pytest_json_report(args) -> Optional[str]:
         command.extend(test_cases)
 
     command.extend(args)
-    try:
-        output = subprocess.check_output(command, text=True, stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        output = e.output
-        print(f"Error occurred: {e}")
-        return None
+    # try:
+    output = subprocess.run(command, capture_output=True)
+    # except subprocess.CalledProcessError as e:
+    #     output = e.output
+    #     print(f"Error occurred: {e}")
+    #     return None
     return output
 
 
 def main():
     args = sys.argv[1:]
     output = run_pytest_json_report(args)
-    print(output)
+    print(output.stdout)
+    print(output.stderr, file=sys.stderr)
 
 
 if __name__ == "__main__":
