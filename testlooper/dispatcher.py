@@ -13,7 +13,7 @@ from typed_python import SerializationContext
 from typing import Set, List, Dict
 
 from testlooper.messages import Request, Response, DISPATCHED_TASKS
-from testlooper.schema.engine_schema import StatusEvent
+from testlooper.schema.engine_schema import StatusEvent, ArtifactStoreConfig
 from testlooper.utils import (
     parse_test_filter,
     setup_logger,
@@ -312,7 +312,15 @@ class DispatcherService(ServiceBase):
         # self._logger.warning(f"Got a message {message} from {connection_id}")
 
     @staticmethod
-    def configure(db, service_object, hostname, port, path_to_git_repo, log_level_name="INFO"):
+    def configure(
+        db,
+        service_object,
+        hostname: str,
+        port: str,
+        path_to_git_repo: str,
+        artifact_store_config: ArtifactStoreConfig,
+        log_level_name="INFO",
+    ):
         """Tell the dispatcher (and worker) what port and hostname to talk to each other on."""
         db.subscribeToSchema(engine_schema)
         with db.transaction():
@@ -323,6 +331,7 @@ class DispatcherService(ServiceBase):
             c.port = port
             c.path_to_git_repo = path_to_git_repo
             c.log_level = logging.getLevelName(log_level_name)
+            c.artifact_store_config = artifact_store_config
 
     @staticmethod
     def serviceDisplay(service_object, instance=None, objType=None, queryArgs=None):

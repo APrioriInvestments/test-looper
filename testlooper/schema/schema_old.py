@@ -8,18 +8,6 @@ from .repo_schema import Commit
 test_looper_schema = Schema("test_looper")
 
 
-ArtifactStorageConfig = Alternative(
-    "ArtifactStorageConfig",
-    LocalDisk=dict(
-        root_path=str,
-        build_artifact_prefix=str,
-        test_artifact_prefix=str,
-    ),
-    S3=dict(bucket=str, region=str, build_artifact_prefix=str, test_artifact_prefix=str),
-    # TODO: something else fancy?
-)
-
-
 # model a command that produces a specific output
 Command = NamedTuple(
     # named docker image
@@ -131,7 +119,7 @@ class Config:
     pathToLocalGitStorage = str
 
     # how we can construct an artifact store
-    artifactStorageConfig = ArtifactStorageConfig
+    # artifactStorageConfig = ArtifactStorageConfig
 
     workerConfig = WorkerConfig
 

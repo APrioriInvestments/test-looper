@@ -289,6 +289,17 @@ class GitWatcherConfig:
     log_level = int
 
 
+ArtifactStoreConfig = Alternative(
+    "ArtifactStoreConfig",
+    LocalDisk=dict(
+        root_path=str,
+        build_artifact_prefix=str,
+        test_artifact_prefix=str,
+    ),
+    S3=dict(bucket=str, region=str, build_artifact_prefix=str, test_artifact_prefix=str),
+)
+
+
 @engine_schema.define
 class MessageBusConfig:
     # NB this is a duplicate of GitWatcherConfig
@@ -297,3 +308,4 @@ class MessageBusConfig:
     hostname = str
     log_level = int
     path_to_git_repo = str
+    artifact_store_config = ArtifactStoreConfig

@@ -23,6 +23,7 @@ from object_database.message_bus import MessageBus, MessageBusEvent
 from typed_python import SerializationContext
 from typing import Dict, Optional, List
 
+from testlooper.artifact_store import ArtifactStore
 from testlooper.dispatcher import Request, Response
 from testlooper.schema.engine_schema import StatusEvent, TaskReference
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
@@ -89,6 +90,7 @@ class WorkerService(ServiceBase):
             self.path_to_git_repo = config.path_to_git_repo
             self._logger = setup_logger(__name__, level=config.log_level)
             self.id = self.runtimeConfig.serviceInstance.service._identity
+            self.artifact_store_config = config.artifact_store_config
         self.connected = False
         self.retries = 0
         self.max_retries = 5
@@ -112,6 +114,7 @@ class WorkerService(ServiceBase):
         self._logger.info("Worker Bus started")
 
         self.source_control_store = Git.get_instance(self.path_to_git_repo)
+        self.artifact_store = ArtifactStore.from_config(self.artifact_store_config)
 
         self.task_handlers = {
             engine_schema.TestPlanGenerationTask: self._generate_test_plan,

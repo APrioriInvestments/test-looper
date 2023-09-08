@@ -40,6 +40,7 @@ from testlooper.engine.git_watcher_service import GitWatcherService
 
 # from testlooper.engine.local_engine_service import LocalEngineService
 from testlooper.engine.schema_monitor import SchemaMonitorService
+from testlooper.schema.engine_schema import ArtifactStoreConfig
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.service import TestlooperService
@@ -144,6 +145,8 @@ def main(
                 level_name="ERROR",
             )
 
+            # overworked
+            log_path = os.path.join(tmp_dirname, "log")
             DispatcherService.configure(
                 database,
                 dispatcher,
@@ -151,6 +154,7 @@ def main(
                 port=8420,
                 log_level_name="INFO",
                 path_to_git_repo=repo_path,
+                artifact_store_config=ArtifactStoreConfig.LocalDisk(root_path=log_path),
             )
 
             with database.transaction():

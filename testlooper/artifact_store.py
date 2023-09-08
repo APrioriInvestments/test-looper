@@ -1,23 +1,34 @@
 """An interface to either local storage or s3, based on fsspec."""
 import fsspec
+from testlooper.schema.engine_schema import ArtifactStoreConfig
 
 
 class ArtifactStore:
-    def __init__(self, storage_type: str, path: str):
+    def __init__(self, storage_type: str, path=".", region="us-east-1"):
         """Stores and loads artifacts.
 
         Args:
             storage_type: Either 'local' or 's3'
-            path: The root directory for the storage.
+            path (optional): The root directory for the storage. Defaults to '.'
+            region (optional): The region to use, if using s3. Seems like an antipattern to
+                have it here.
         """
         self.storage_type = storage_type
         self.path = path
+        self.region = region
+
+    @classmethod
+    def from_config(cls, config: ArtifactStoreConfig) -> "ArtifactStore":
+        if config.matches.LocalDisk:
+            return ArtifactStore(storage_type="local", path=config.root_path)
+        elif config.matches.S3:
+            return ArtifactStore(storage_type="s3", region=config.region, path=config.bucket)
 
     def get_fs(self):
         if self.storage_type == "local":
             return fsspec.filesystem("file")
         elif self.storage_type == "s3":
-            return fsspec.filesystem("s3")
+            return fsspec.filesystem("s3", region=self.region)
         else:
             raise ValueError(f"Unsupported storage type: {self.storage_type}")
 
