@@ -18,8 +18,8 @@ local_artifact_store = ArtifactStore("local", local_test_dir)
 
 @pytest.mark.parametrize("artifact_store", [local_artifact_store])
 def test_save_and_load(artifact_store):
-    artifact_store.save("test.txt", "Hello, World!")
-    assert artifact_store.load("test.txt") == "Hello, World!"
+    artifact_store.save("test.txt", b"Hello, World!")
+    assert artifact_store.load("test.txt") == b"Hello, World!"
 
 
 @pytest.mark.parametrize(
@@ -45,26 +45,26 @@ def test_save_and_load_nonexistent_file(artifact_store):
 
 @pytest.mark.parametrize("artifact_store", [local_artifact_store])
 def test_save_and_load_empty_file(artifact_store):
-    artifact_store.save("empty.txt", "")
-    assert artifact_store.load("empty.txt") == ""
+    artifact_store.save("empty.txt", b"")
+    assert artifact_store.load("empty.txt") == b""
 
 
 @pytest.mark.parametrize("artifact_store", [local_artifact_store])
 def test_save_and_load_large_file(artifact_store):
-    large_data = "A" * 1024 * 1024  # 1MB of data
+    large_data = b"A" * 1024 * 1024  # 1MB of data
     artifact_store.save("large.txt", large_data)
     assert artifact_store.load("large.txt") == large_data
 
 
 @pytest.mark.parametrize("artifact_store", [local_artifact_store])
 def test_save_and_load_special_characters(artifact_store):
-    special_data = "!@#$%^&*()_+{}:\"<>?[];',./~`-="
+    special_data = b"!@#$%^&*()_+{}:\"<>?[];',./~`-="
     artifact_store.save("special.txt", special_data)
     assert artifact_store.load("special.txt") == special_data
 
 
 @pytest.mark.parametrize("artifact_store", [local_artifact_store])
 def test_save_and_load_unicode(artifact_store):
-    unicode_data = "こんにちは世界"
+    unicode_data = "こんにちは世界".encode("utf-8")
     artifact_store.save("unicode.txt", unicode_data)
     assert artifact_store.load("unicode.txt") == unicode_data

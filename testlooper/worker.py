@@ -34,8 +34,8 @@ from testlooper.vcs import Git
 
 @dataclass
 class CommandOutput:
-    out: str
-    err: str
+    out: bytes
+    err: bytes
 
 
 @dataclass
@@ -268,7 +268,7 @@ class WorkerService(ServiceBase):
                 client = docker.from_env()
                 volumes = {tmpdir: {"bind": mount_dir, "mode": "rw"}}
                 container = client.containers.run(
-                    image_name,
+                    f"{image_name}:{commit_hash}",
                     # the below listbrackets turn out to be crucial for unknown reasons
                     [command],
                     volumes=volumes,
@@ -531,7 +531,6 @@ class WorkerService(ServiceBase):
                         f"test_run_{suite_name}_{commit_hash}_stderr.txt", output.err
                     )
                     # evaluate the results.
-                    print("written")
                     self._evaluate_test_results(
                         path_to_test_output=os.path.join(tmp_test_dir, "test_output.json"),
                         task=task,
@@ -575,8 +574,8 @@ class WorkerService(ServiceBase):
         )
         container.wait()
 
-        out = container.logs(stdout=True, stderr=False).decode("utf-8")
-        err = container.logs(stdout=False, stderr=True).decode("utf-8")
+        out = container.logs(stdout=True, stderr=False)
+        err = container.logs(stdout=False, stderr=True)
 
         container.remove(force=True)
 
