@@ -28,7 +28,11 @@ from testlooper.dispatcher import Request, Response
 from testlooper.schema.engine_schema import StatusEvent, TaskReference
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.schema.test_schema import StageResult, TestRunResult
-from testlooper.utils import setup_logger
+from testlooper.utils import (
+    setup_logger,
+    TEST_RUN_LOG_FORMAT_STDOUT,
+    TEST_RUN_LOG_FORMAT_STDERR,
+)
 from testlooper.vcs import Git
 
 
@@ -216,8 +220,7 @@ class WorkerService(ServiceBase):
     def _generate_test_plan(self, task) -> bool:
         """Read the test config for the specified commit, and generate a TestPlan.
 
-        Currently assumes that the docker image needed has already been built, and
-        that the commit already has a TestConfig attribute. Generates
+        Currently assumes that the commit already has a TestConfig attribute. Generates
         CommitTestDefinitionGenerationTasks on completion.
 
         Args:
@@ -310,9 +313,8 @@ class WorkerService(ServiceBase):
         return True
 
     def _build_docker_image(self, task) -> bool:
-        """TODO the logic for when to (re)build docker images is not well established.
-
-        Currently the Tasks are generated as part of the TestConfig creation process.
+        """Currently the Tasks are generated as part of the TestConfig and
+        TestSuite creation process.
 
         Args:
             task (engine_schema.BuildDockerImageTask): The task to be executed.
@@ -525,10 +527,10 @@ class WorkerService(ServiceBase):
                         working_dir=mount_dir,
                     )
                     self.artifact_store.save(
-                        f"test_run_{suite_name}_{commit_hash}_stdout.txt", output.out
+                        TEST_RUN_LOG_FORMAT_STDOUT.format(suite_name, commit_hash), output.out
                     )
                     self.artifact_store.save(
-                        f"test_run_{suite_name}_{commit_hash}_stderr.txt", output.err
+                        TEST_RUN_LOG_FORMAT_STDERR.format(suite_name, commit_hash), output.err
                     )
                     # evaluate the results.
                     self._evaluate_test_results(

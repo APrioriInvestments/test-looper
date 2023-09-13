@@ -64,7 +64,7 @@ test outputs are expected to define the following things, in addition to a versi
 5/17/23)
 
 1. Environments 
-2. Builds
+2. Builds (not yet implemented)
 3. Tests
 
 An environment specifies the context in which a build or a test runs (OS, installed libraries, environment variables)

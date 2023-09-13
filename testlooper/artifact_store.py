@@ -19,7 +19,7 @@ class ArtifactStore:
     @classmethod
     def from_config(cls, config: ArtifactStoreConfig) -> "ArtifactStore":
         if config.matches.LocalDisk:
-            return ArtifactStore(filesystem=fsspec.filesystem("file"), paths=config.root_path)
+            return ArtifactStore(filesystem=fsspec.filesystem("file"), path=config.root_path)
         elif config.matches.S3:
             return ArtifactStore(
                 storage_type=fsspec.filesystem("s3"), path=f"s3://{config.bucket}"

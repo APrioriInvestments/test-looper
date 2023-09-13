@@ -15,6 +15,10 @@ TL_SERVICE_NAME = "TestlooperService"
 H1_FONTSIZE = 25
 H2_FONTSIZE = 20
 
+# suite, then hash.
+TEST_RUN_LOG_FORMAT_STDOUT = "test_run_{}_{}_stdout.txt"
+TEST_RUN_LOG_FORMAT_STDERR = "test_run_{}_{}_stderr.txt"
+
 
 def get_tl_link(instance) -> str:
     type_name = f"{instance.__schema__.name}.{type(instance).__name__}"

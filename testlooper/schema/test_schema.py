@@ -7,6 +7,9 @@ import yaml
 from object_database import Index, Indexed, SubscribeLazilyByDefault
 from typed_python import Alternative, ConstDict, Dict, ListOf, NamedTuple, OneOf, TupleOf
 
+from testlooper.artifact_store import ArtifactStore
+from testlooper.utils import TEST_RUN_LOG_FORMAT_STDERR, TEST_RUN_LOG_FORMAT_STDOUT
+
 from ..utils import (
     H1_FONTSIZE,
     H2_FONTSIZE,
@@ -84,7 +87,6 @@ class CommitDesiredTesting:
     desired_testing = DesiredTesting
 
     def update_desired_testing(self, desired_testing):
-        # TODO: trigger any engine_schema testing actions to perform the desired testing.
         self.desired_testing = desired_testing
 
     def display_cell(self):
@@ -248,19 +250,19 @@ class CommitTestDefinition:
         """
         version = test_plan_dict["version"]
         assert version == 1, f"Unsupported test_plan version {version}"
-        docker_build_tasks = []
+        dependent_tasks = []
         if "environments" in test_plan_dict:
             # build the Environment object and corresponding Docker image, if required.
             environments = test_plan_dict["environments"]
             for env_name, env_info in environments.items():
                 env, docker_build_task = self.generate_environment(env_name, env_info)
                 if docker_build_task:
-                    docker_build_tasks.append(docker_build_task)
+                    dependent_tasks.append(docker_build_task)
         else:
             raise ValueError('No "environments" key in test_plan')
 
         if "builds" in test_plan_dict:
-            pass  # TODO
+            logger.warning("Builds are not yet supported")
         if "suites" in test_plan_dict:
             suites = test_plan_dict["suites"]
             for suite_name, suite in suites.items():
@@ -277,14 +279,14 @@ class CommitTestDefinition:
                     continue
 
                 # TODO move these build deps somewhere else
-                # dependencies = suite["dependencies"]
+                # build_dependencies = suite["dependencies"]
                 list_tests = suite["list-tests"]
                 run_tests = suite["run-tests"]
                 timeout = suite["timeout"]
                 engine_schema.TestSuiteGenerationTask.create(
                     commit=self.commit,
                     environment=env,
-                    dependencies=docker_build_tasks,
+                    dependencies=dependent_tasks,
                     name=suite_name,
                     timeout_seconds=timeout,
                     list_tests_command=list_tests,
@@ -490,7 +492,16 @@ class Test:
         def renderer_fun(row, col):
             # row is a TestResult. For all info, for now, use the most recent result.
             if col == "Status":
-                return "FAILED" if row.runs_failed else "PASSED"
+                if row.runs_pending:
+                    text = "PENDING"
+                else:
+                    if row.runs_errored:
+                        text = "ERROR"
+                    elif row.runs_failed:
+                        text = "FAILED"
+                    else:
+                        text = "PASSED"
+                return cells.Clickable(text, get_tl_link(row))
             elif col == "Duration":
                 return (
                     str(round(row.results[-1].duration_ms, 2)) + " ms" if row.results else ""
@@ -621,6 +632,12 @@ class TestResults:
     def runs_pending(self):
         return max(self.runs_desired - self.runs_completed, 0)
 
+    @property
+    def artifact_store(self) -> ArtifactStore:
+        """Return the artifact store by looking up the config."""
+        config = engine_schema.MessageBusConfig.lookupUnique()
+        return ArtifactStore.from_config(config.artifact_store_config)
+
     def fail_rate(self, include_xfailed=False):
         fails = self.runs_failed + self.runs_errored
 
@@ -697,6 +714,22 @@ class TestResults:
             )
             layout += cells.Text(f"Start Time: {formatted_time}")
             layout += cells.Text("")
+
+            # log. Look up the config. Pull the results corresponding to that config.
+
+        # FIXME this assumes only one run. Use the UUID instead.
+        stdout = self.artifact_store.load(
+            TEST_RUN_LOG_FORMAT_STDOUT.format(self.suite.name, self.commit.hash)
+        ).decode("utf-8")
+        stderr = self.artifact_store.load(
+            TEST_RUN_LOG_FORMAT_STDERR.format(self.suite.name, self.commit.hash)
+        ).decode("utf-8")
+
+        layout += cells.Text("Run STDOUT", fontSize=H2_FONTSIZE)
+        layout += cells.Text(stdout)
+
+        layout += cells.Text("Run STDERR", fontSize=H2_FONTSIZE)
+        layout += cells.Text(stderr)
 
         return add_menu_bar(
             cells.HCenter(layout),
