@@ -4,37 +4,21 @@ test_artifact_store.py
 NB we aren't testing s3 here as there's a moto/aiobotocore incompatibility.
 parameterization is in hope this is resolved in future releases.
 """
-
-import pytest
-from testlooper.artifact_store import ArtifactStore
 import tempfile
+import fsspec
+import pytest
 
-from fsspec.implementations.local import LocalFileSystem
+from testlooper.artifact_store import ArtifactStore
 
 local_test_dir = tempfile.mkdtemp()
-s3_test_dir = "s3://will-testlooper-test"
-local_artifact_store = ArtifactStore("local", local_test_dir)
+# s3_test_dir = "s3://will-testlooper-test"
+local_artifact_store = ArtifactStore(fsspec.filesystem("file"), local_test_dir)
 
 
 @pytest.mark.parametrize("artifact_store", [local_artifact_store])
 def test_save_and_load(artifact_store):
     artifact_store.save("test.txt", b"Hello, World!")
     assert artifact_store.load("test.txt") == b"Hello, World!"
-
-
-@pytest.mark.parametrize(
-    "artifact_store, fs_type",
-    [
-        (local_artifact_store, LocalFileSystem),
-    ],
-)
-def test_get_fs(artifact_store, fs_type):
-    assert isinstance(artifact_store.get_fs(), fs_type)
-
-
-def test_unsupported_storage_type():
-    with pytest.raises(ValueError):
-        ArtifactStore("unsupported", "path").get_fs()
 
 
 @pytest.mark.parametrize("artifact_store", [local_artifact_store])
