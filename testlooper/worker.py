@@ -698,6 +698,8 @@ class WorkerService(ServiceBase):
         TestConfig object and parse if we need to. Generates BuildDockerImageTasks if
         required, and cues TestPlanGenerationTasks on completion.
 
+        NB - we make a DockerBuildTask for every commit here.
+
         Args:
             task (engine_schema.GenerateTestConfigTask): The task to be executed.
 
@@ -731,27 +733,25 @@ class WorkerService(ServiceBase):
 
             docker_task = None
 
-            if config is None:
-                with self.db.transaction():
+            with self.db.transaction():
+                if config is None:
                     config = repo_schema.TestConfig(
                         config_str=config_file_contents, repo=commit.repo
                     )
                     config.parse_config()
-                    if docker_config := config.image.get("docker"):
-                        if docker_config.get("dockerfile"):
-                            config_name = f"{config.name}.config"
-                            docker_task = engine_schema.BuildDockerImageTask.create(
-                                commit=commit,
-                                dockerfile=docker_config["dockerfile"],
-                                image=config_name,
-                            )
-                            config.image_name = config_name
-                        else:
-                            config.image_name = docker_config[
-                                "image"
-                            ]  # TODO add the commit as a tag.
+                if docker_config := config.image.get("docker"):
+                    if docker_config.get("dockerfile"):
+                        config_name = f"{config.name}.config"
+                        docker_task = engine_schema.BuildDockerImageTask.create(
+                            commit=commit,
+                            dockerfile=docker_config["dockerfile"],
+                            image=config_name,
+                        )
+                        config.image_name = config_name
                     else:
-                        raise ValueError("No docker image specified in config.")
+                        config.image_name = docker_config["image"]
+                else:
+                    raise ValueError("No docker image specified in config.")
         except Exception as e:
             self._logger.error(f"Failed to parse config file: {e}")
             with self.db.transaction():

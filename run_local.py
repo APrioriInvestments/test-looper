@@ -58,8 +58,8 @@ HTTP_PORT = 8001
 ODB_PORT = 8021
 LOGLEVEL_NAME = "ERROR"
 GIT_WATCHER_PORT = 9999
-REPO_PATH = "."
-NUM_WORKERS = 16
+REPO_PATH = "/home/willg/Dev/testlooper-test"
+NUM_WORKERS = 1
 
 
 def main(
@@ -230,8 +230,6 @@ def scan_repo(
 
     for branch_name in git_repo.list_branches():
         # TODO remove
-        if branch_name not in ("will-deliberately-failing-tests"):
-            continue
         # if not branch_name.startswith(branch_prefix):
         #     continue
         # don't spam the POSTs
