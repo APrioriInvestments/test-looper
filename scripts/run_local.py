@@ -16,11 +16,11 @@
 
 # pyright: reportGeneralTypeIssues=false
 
+import argparse
 import logging
 import os
 import requests
 import shutil
-import sys
 import tempfile
 import time
 import yaml
@@ -60,18 +60,24 @@ LOGLEVEL_NAME = "ERROR"
 GIT_WATCHER_PORT = 9999
 REPO_PATH = "/home/willg/Dev/testlooper-test"
 NUM_WORKERS = 1
+SCAN_DEPTH = 3
 
 
-def main(
-    path_to_config=PATH_TO_CONFIG,
-    token=TOKEN,
+def run_local(
+    config_path=PATH_TO_CONFIG,
+    repo_path=REPO_PATH,
+    token=genToken(),
     http_port=HTTP_PORT,
     internal_port=HTTP_PORT + 1,
     odb_port=ODB_PORT,
-    log_level=LOGLEVEL_NAME,
+    log_level_name=LOGLEVEL_NAME,
     git_watcher_port=GIT_WATCHER_PORT,
+    num_workers=NUM_WORKERS,
+    dispatcher_port=8420,
+    scan_depth=SCAN_DEPTH,
+    branch_prefix=None,
 ):
-    with open(path_to_config, "r") as flines:
+    with open(os.path.join(repo_path, config_path), "r") as flines:
         test_config = flines.read()
 
     parsed_test_config = yaml.safe_load(test_config)
@@ -79,13 +85,14 @@ def main(
 
     with tempfile.TemporaryDirectory() as tmp_dirname:
         # copy repo to a tmpdir just to be safu
-        repo_path = os.path.join(tmp_dirname, repo_name)
-        shutil.copytree(REPO_PATH, repo_path)
+        tmp_repo_path = os.path.join(tmp_dirname, repo_name)
+        shutil.copytree(repo_path, tmp_repo_path)
+
         server = None
         try:
             # spin up the required TL services
             server = startServiceManagerProcess(
-                tmp_dirname, odb_port, token, loglevelName=log_level, logDir=False
+                tmp_dirname, odb_port, token, loglevelName=log_level_name, logDir=False
             )
             database = connect("localhost", odb_port, token, retry=True)
             database.subscribeToSchema(
@@ -112,7 +119,7 @@ def main(
                     "--host",
                     "0.0.0.0",
                     "--log-level",
-                    log_level,
+                    log_level_name,
                 ],
             )
             ActiveWebService.setLoginPlugin(
@@ -142,18 +149,17 @@ def main(
                 git_service,
                 hostname="localhost",
                 port=git_watcher_port,
-                level_name="ERROR",
+                level_name=log_level_name,
             )
 
             # overworked
             log_path = os.path.join(tmp_dirname, "log")
-            print("logs stored at ", log_path)
             DispatcherService.configure(
                 database,
                 dispatcher,
                 hostname="localhost",
-                port=8420,
-                log_level_name="INFO",
+                port=dispatcher_port,
+                log_level_name=log_level_name,
                 path_to_git_repo=repo_path,
                 artifact_store_config=ArtifactStoreConfig.LocalDisk(root_path=log_path),
             )
@@ -161,7 +167,7 @@ def main(
             with database.transaction():
                 ServiceManager.startService("ActiveWebService", 1)
                 ServiceManager.startService("DispatcherService", 1)
-                ServiceManager.startService("WorkerService", NUM_WORKERS)
+                ServiceManager.startService("WorkerService", num_workers)
                 # TL frontend - tests and repos
                 _ = ServiceManager.createOrUpdateService(
                     TestlooperService, TL_SERVICE_NAME, target_count=1
@@ -183,7 +189,9 @@ def main(
                 database,
                 post_url=f"http://localhost:{git_watcher_port}/git_updater",
                 path_to_repo=repo_path,
-                path_to_tl_config=path_to_config,
+                path_to_tl_config=config_path,
+                max_depth=scan_depth,
+                branch_prefix=branch_prefix,
             )
 
             while True:
@@ -201,7 +209,7 @@ def scan_repo(
     path_to_repo: str,
     path_to_tl_config=".testlooper/config.yaml",
     max_depth=3,
-    # branch_prefix="will",  # FIXME a temp shim to make rerunning quicker
+    branch_prefix=None,
 ) -> Git:
     """
     Scan a repo using the repo config path, listing all *local* branches down to
@@ -229,9 +237,8 @@ def scan_repo(
         # _ = repo_schema.TestConfig(config_str=test_config, repo=repo)
 
     for branch_name in git_repo.list_branches():
-        # TODO remove
-        # if not branch_name.startswith(branch_prefix):
-        #     continue
+        if branch_prefix and branch_name.startswith(branch_prefix):
+            continue
         # don't spam the POSTs
         time.sleep(0.1)
         commits = [
@@ -287,4 +294,15 @@ def scan_repo(
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    parser = argparse.ArgumentParser(
+        description="Run testlooper locally, pointing at a local git repo"
+    )
+    parser.add_argument(
+        "--config", type=str, help="path to config file", default="example_config.yaml"
+    )
+    args = parser.parse_args()
+
+    with open(args.config) as flines:
+        config = yaml.safe_load(flines)
+
+    run_local(**config)
