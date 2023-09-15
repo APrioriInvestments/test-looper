@@ -1,7 +1,8 @@
 # tells testlooper where to look for a repo, and which ports to host its various services on.
 
-repo_path: "/home/willg/Dev/testlooper-test"
-# repo_path: "/home/willg/Dev/test-looper"
+repo_path: "git@github.com:wllgrnt/testlooper-test.git" # a directory, or a cloneable github/gitlab url.
+# repo_path: "git@github.com:APrioriInvestments/typed_python.git"
+# repo_initial_branch: "will-testlooper" # the branch to checkout when first reading the config
 config_path: ".testlooper/config.yaml"
 # token: ""
 http_port: 8001

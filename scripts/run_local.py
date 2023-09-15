@@ -21,6 +21,7 @@ import logging
 import os
 import requests
 import shutil
+import sys
 import tempfile
 import time
 import yaml
@@ -76,23 +77,40 @@ def run_local(
     dispatcher_port=8420,
     scan_depth=SCAN_DEPTH,
     branch_prefix=None,
+    repo_initial_branch=None,
 ):
-    with open(os.path.join(repo_path, config_path), "r") as flines:
-        test_config = flines.read()
+    with (
+        tempfile.TemporaryDirectory() as tmp_dirname1,
+        tempfile.TemporaryDirectory() as tmp_dirname2,
+    ):
+        # if the repo_path is a url, git clone it to a tmpdir.
+        # NB - assumes that the branch with the config.yaml is the default VCS branch.
+        if not os.path.isdir(repo_path):
+            new_repo_path = tmp_dirname2
+            git_repo = Git.get_instance(new_repo_path)
+            git_repo.clone_from(source_repo=repo_path)
+            repo_path = new_repo_path
 
-    parsed_test_config = yaml.safe_load(test_config)
-    repo_name = parsed_test_config["name"]
+        if repo_initial_branch:
+            result = Git.get_instance(repo_path).checkout_branch(repo_initial_branch)
+            if not result:
+                sys.exit(1)
 
-    with tempfile.TemporaryDirectory() as tmp_dirname:
+        with open(os.path.join(repo_path, config_path), "r") as flines:
+            test_config = flines.read()
+
+        parsed_test_config = yaml.safe_load(test_config)
+        repo_name = parsed_test_config["name"]
+
         # copy repo to a tmpdir just to be safu
-        tmp_repo_path = os.path.join(tmp_dirname, repo_name)
+        tmp_repo_path = os.path.join(tmp_dirname1, repo_name)
         shutil.copytree(repo_path, tmp_repo_path)
 
         server = None
         try:
             # spin up the required TL services
             server = startServiceManagerProcess(
-                tmp_dirname, odb_port, token, loglevelName=log_level_name, logDir=False
+                tmp_dirname1, odb_port, token, loglevelName=log_level_name, logDir=False
             )
             database = connect("localhost", odb_port, token, retry=True)
             database.subscribeToSchema(
@@ -153,7 +171,7 @@ def run_local(
             )
 
             # overworked
-            log_path = os.path.join(tmp_dirname, "log")
+            log_path = os.path.join(tmp_dirname1, "log")
             DispatcherService.configure(
                 database,
                 dispatcher,

@@ -476,6 +476,10 @@ class Git:
             except Exception:
                 return None
 
+    def checkout_branch(self, branch_name):
+        logger.info("Checking out branch %s", branch_name)
+        return self._subprocess_check_call(["git", "checkout", branch_name]) == 0
+
     def _write_file(self, name, text):
         with open(os.path.join(self.path_to_repo, name), "w") as f:
             f.write(text)
