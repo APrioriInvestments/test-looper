@@ -4,6 +4,7 @@ from collections import deque, defaultdict
 from datetime import datetime
 import functools
 import object_database.web.cells as cells
+import uuid
 import yaml
 
 from object_database import Index, Indexed
@@ -11,7 +12,14 @@ from typed_python import Alternative, ConstDict, Dict, OneOf
 from typing import List
 
 from .schema_declarations import repo_schema, ui_schema, test_schema, engine_schema
-from ..utils import H1_FONTSIZE, TL_SERVICE_NAME, add_menu_bar, get_tl_link, setup_logger
+from ..utils import (
+    H1_FONTSIZE,
+    TL_SERVICE_NAME,
+    add_menu_bar,
+    get_tl_link,
+    setup_logger,
+    get_node_id,
+)
 from .test_schema import DesiredTesting, TestResults, TestFilter
 
 logger = setup_logger(__name__, level=logging.INFO)
@@ -334,16 +342,16 @@ class Commit:
         because DesiredTesting doesn't quite support this.
         """
         test_results = test_schema.TestResults.lookupAll(commit=self)
+        test_suites = defaultdict(list)
         for test_result in test_results:
             if test_result.runs_failed:
-                # gotta bump the runs_desired manually too
                 test_result.runs_desired += 1
-                engine_schema.TestRunTask.create(  # TODO update
-                    test_results=test_result,
-                    runs_desired=1,
-                    commit=self,
-                    suite=test_result.suite,
-                )
+                test_suites[test_result.suite].append(get_node_id(test_result.test))
+
+        for suite, node_ids in test_suites.items():
+            engine_schema.TestSuiteRunTask.create(
+                uuid=str(uuid.uuid4()), commit=self, suite=suite, test_node_ids=node_ids
+            )
 
         logger.info(f"Rerunning failed tests for commit {self.hash}")
 
