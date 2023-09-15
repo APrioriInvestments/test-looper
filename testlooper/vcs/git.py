@@ -221,7 +221,7 @@ class Git:
             )
 
             output = [line.strip() for line in output if line]
-            output = [line[1:] if line[0] == "*" else line for line in output if line]
+            output = [line[1:] if line[0] in ("*", "+") else line for line in output if line]
             output = [line.strip() for line in output if line]
 
             return [line for line in output if line and self._is_valid_branch_name(line)]
