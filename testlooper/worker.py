@@ -280,6 +280,7 @@ class WorkerService(ServiceBase):
                     working_dir=mount_dir,
                     remove=False,
                     detach=True,
+                    user=os.getuid(),
                 )
                 container.wait()
                 logs = container.logs()
@@ -424,6 +425,7 @@ class WorkerService(ServiceBase):
                     volumes=volumes,
                     remove=False,
                     detach=True,
+                    user=os.getuid(),
                 )
                 container.wait()
                 output = container.logs().decode("utf-8")
@@ -580,6 +582,7 @@ class WorkerService(ServiceBase):
             detach=True,
             stdout=True,
             stderr=True,
+            user=os.getuid(),
         )
         container.wait()
 
