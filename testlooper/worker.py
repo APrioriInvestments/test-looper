@@ -20,6 +20,7 @@ import object_database.web.cells as cells
 from dataclasses import dataclass
 from object_database import ServiceBase, service_schema
 from object_database.message_bus import MessageBus, MessageBusEvent
+from object_database import RevisionConflictException
 from typed_python import SerializationContext
 from typing import Dict, Optional, List
 
@@ -728,30 +729,21 @@ class WorkerService(ServiceBase):
 
             assert config_file_contents is not None
 
-            with self.db.view():
-                config = repo_schema.TestConfig.lookupUnique(config_str=config_file_contents)
-
-            docker_task = None
-
             with self.db.transaction():
+                config = repo_schema.TestConfig.lookupUnique(config_str=config_file_contents)
                 if config is None:
                     config = repo_schema.TestConfig(
                         config_str=config_file_contents, repo=commit.repo
                     )
                     config.parse_config()
-                if docker_config := config.image.get("docker"):
-                    if docker_config.get("dockerfile"):
-                        config_name = f"{config.name}.config"
-                        docker_task = engine_schema.BuildDockerImageTask.create(
-                            commit=commit,
-                            dockerfile=docker_config["dockerfile"],
-                            image=config_name,
-                        )
-                        config.image_name = config_name
-                    else:
-                        config.image_name = docker_config["image"]
-                else:
-                    raise ValueError("No docker image specified in config.")
+                docker_task = self._create_docker_build_task(commit, config)
+
+        except RevisionConflictException:
+            self._logger.warning("Tried to parse config twice")
+            with self.db.transaction():
+                config = repo_schema.TestConfig.lookupUnique(config_str=config_file_contents)
+                docker_task = self._create_docker_build_task(commit, config)
+
         except Exception as e:
             self._logger.error(f"Failed to parse config file: {e}")
             with self.db.transaction():
@@ -765,6 +757,24 @@ class WorkerService(ServiceBase):
             )
             task.completed(time.time())
         return True
+
+    def _create_docker_build_task(
+        self, commit: repo_schema.Commit, config: repo_schema.TestConfig
+    ):
+        if docker_config := config.image.get("docker"):
+            if docker_config.get("dockerfile"):
+                config_name = f"{config.name}.config"
+                docker_task = engine_schema.BuildDockerImageTask.create(
+                    commit=commit,
+                    dockerfile=docker_config["dockerfile"],
+                    image=config_name,
+                )
+                config.image_name = config_name
+                return docker_task
+            else:
+                config.image_name = docker_config["image"]
+        else:
+            raise ValueError("No docker image specified in config.")
 
     def _start_task(self, task, start_time) -> bool:
         with self.db.transaction():
