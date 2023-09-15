@@ -491,53 +491,54 @@ class WorkerService(ServiceBase):
                 task.test_node_ids
             )  # either None, in which case we run all tests, or a list of test node ids
 
+        tmp_commit_dir_mgr = tempfile.TemporaryDirectory()
+        tmp_commit_dir = tmp_commit_dir_mgr.name
+
+        tmp_test_dir_mgr = tempfile.TemporaryDirectory()
+        tmp_test_dir = tmp_test_dir_mgr.name
         try:
-            with tempfile.TemporaryDirectory() as tmp_commit_dir:
-                with tempfile.TemporaryDirectory() as tmp_test_dir:
-                    # checkout the commit
-                    self.source_control_store.create_worktree_and_reset_to_commit(
-                        commit_hash, tmp_commit_dir
-                    )
-                    # prep the env vars
-                    mount_dir = "/repo"
-                    env_vars = {
-                        "REPO_ROOT": mount_dir,
-                        "TEST_OUTPUT": os.path.join("/tmp", "test_output.json"),
-                        "TEST_INPUT": os.path.join("/tmp", "test_input.txt")
-                        if test_node_ids
-                        else "",
-                    }
-                    env = self._prep_env_vars(**env_vars)
+            # checkout the commit
+            self.source_control_store.create_worktree_and_reset_to_commit(
+                commit_hash, tmp_commit_dir
+            )
+            # prep the env vars
+            mount_dir = "/repo"
+            env_vars = {
+                "REPO_ROOT": mount_dir,
+                "TEST_OUTPUT": os.path.join("/tmp", "test_output.json"),
+                "TEST_INPUT": os.path.join("/tmp", "test_input.txt") if test_node_ids else "",
+            }
+            env = self._prep_env_vars(**env_vars)
 
-                    # generate the test input file, if we need it.
-                    if test_node_ids:
-                        test_input_path = os.path.join(tmp_test_dir, "test_input.txt")
-                        self._generate_test_input_file(
-                            test_node_ids, path_to_input_file=test_input_path
-                        )
+            # generate the test input file, if we need it.
+            if test_node_ids:
+                test_input_path = os.path.join(tmp_test_dir, "test_input.txt")
+                self._generate_test_input_file(
+                    test_node_ids, path_to_input_file=test_input_path
+                )
 
-                    # run the command in docker
-                    output = self._run_docker_command(
-                        f"{image_name}:{commit_hash}",
-                        command,
-                        volumes={
-                            tmp_commit_dir: {"bind": mount_dir, "mode": "rw"},
-                            tmp_test_dir: {"bind": "/tmp", "mode": "rw"},
-                        },
-                        env=env,
-                        working_dir=mount_dir,
-                    )
-                    self.artifact_store.save(
-                        TEST_RUN_LOG_FORMAT_STDOUT.format(suite_name, commit_hash), output.out
-                    )
-                    self.artifact_store.save(
-                        TEST_RUN_LOG_FORMAT_STDERR.format(suite_name, commit_hash), output.err
-                    )
-                    # evaluate the results.
-                    self._evaluate_test_results(
-                        path_to_test_output=os.path.join(tmp_test_dir, "test_output.json"),
-                        task=task,
-                    )
+            # run the command in docker
+            output = self._run_docker_command(
+                f"{image_name}:{commit_hash}",
+                command,
+                volumes={
+                    tmp_commit_dir: {"bind": mount_dir, "mode": "rw"},
+                    tmp_test_dir: {"bind": "/tmp", "mode": "rw"},
+                },
+                env=env,
+                working_dir=mount_dir,
+            )
+            self.artifact_store.save(
+                TEST_RUN_LOG_FORMAT_STDOUT.format(suite_name, commit_hash), output.out
+            )
+            self.artifact_store.save(
+                TEST_RUN_LOG_FORMAT_STDERR.format(suite_name, commit_hash), output.err
+            )
+            # evaluate the results.
+            self._evaluate_test_results(
+                path_to_test_output=os.path.join(tmp_test_dir, "test_output.json"),
+                task=task,
+            )
 
         except Exception as e:
             # TODO error out the suites.
@@ -547,9 +548,14 @@ class WorkerService(ServiceBase):
                 task.failed(time.time())
             return False
 
-        with self.db.transaction():
-            task.completed(time.time())
-        return True
+        else:
+            with self.db.transaction():
+                task.completed(time.time())
+            return True
+
+        finally:
+            tmp_commit_dir_mgr.cleanup()
+            tmp_test_dir_mgr.cleanup()
 
     def _prep_env_vars(self, **kwargs):
         env = os.environ.copy()
