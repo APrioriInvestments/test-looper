@@ -727,7 +727,11 @@ class WorkerService(ServiceBase):
                 commit_hash, path
             )
 
-            assert config_file_contents is not None
+            if config_file_contents is None:
+                self._logger.warning(f"Config file {path} missing from commit {commit_hash}")
+                with self.db.transaction():
+                    task.failed(time.time())
+                    return False
 
             with self.db.transaction():
                 config = repo_schema.TestConfig.lookupUnique(config_str=config_file_contents)
