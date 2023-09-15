@@ -1,0 +1,10 @@
+# tells testlooper where to look for a repo, and which ports to host its various services on.
+
+repo_path: "https://github.com/wllgrnt/testlooper-test.git"
+config_path: ".testlooper/config.yaml"
+http_port: 8001
+odb_port: 8021
+log_level_name: "INFO"
+git_watcher_port: 8999
+num_workers: 16
+branch_prefix:

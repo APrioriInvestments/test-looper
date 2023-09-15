@@ -1,0 +1,37 @@
+PyYAML ~= 6.0
+click ~= 8.1
+docker ~= 6.1
+pytest ~= 7.4
+pytest-json-report ~= 1.5
+fsspec ~= 2023.9.0
+s3fs ~= 2023.9.0
+
+# from object_database/requirements.txt
+beautifulsoup4
+boto3
+flask >= 2.0, < 2.3
+flask-cors
+flask-login
+flask-sockets @ git+https://github.com/APrioriInvestments/flask-sockets.git@2b767f456d166c02d8507f88a65926335a045789#egg=flask-sockets
+flask-wtf
+gevent
+gevent-websocket
+hiredis
+ldap3
+nodeenv
+numpy
+psutil
+pytz
+pyyaml
+redis
+requests
+sortedcontainers
+wtforms
+
+
+# from typed_python/requirements.txt
+llvmlite==0.38
+numpy
+psutil
+pytz
+sortedcontainers
