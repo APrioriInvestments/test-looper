@@ -185,6 +185,9 @@ def run_local(
             with database.transaction():
                 ServiceManager.startService("ActiveWebService", 1)
                 ServiceManager.startService("DispatcherService", 1)
+
+            time.sleep(5)
+            with database.transaction():
                 ServiceManager.startService("WorkerService", num_workers)
                 # TL frontend - tests and repos
                 _ = ServiceManager.createOrUpdateService(
@@ -202,7 +205,7 @@ def run_local(
                 _ = ServiceManager.createOrUpdateService(
                     SchemaMonitorService, "SchemaMonitorService", target_count=1
                 )
-            time.sleep(2)  # temp - let the services start up before we start hitting them
+            time.sleep(10)  # temp - let the services start up before we start hitting them
             scan_repo(
                 database,
                 post_url=f"http://localhost:{git_watcher_port}/git_updater",
