@@ -460,7 +460,7 @@ class WorkerService(ServiceBase):
                 task.completed(time.time())
 
         except Exception as e:
-            self._logger.error(f"Failed to generate test suite: {e}")
+            self._logger.exception(f"Failed to generate test suite: {e}")
             with self.db.transaction():
                 task.failed(time.time())
             return False
