@@ -89,6 +89,10 @@ def run_local(
             new_repo_path = tmp_dirname2
             git_repo = Git.get_instance(new_repo_path)
             git_repo.clone_from(source_repo=repo_path)
+            # for now, pull all remote branches
+            for branch in git_repo.list_branches_for_remote("origin").keys():
+                git_repo.checkout_branch(branch)
+                time.sleep(0.1)
             repo_path = new_repo_path
 
         if repo_initial_branch:
