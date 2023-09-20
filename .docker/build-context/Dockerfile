@@ -32,6 +32,8 @@ ENV OPENBLAS_NUM_THREADS=1
 # hashes, like sets, will not have a stable ordering for the same data.
 ENV PYTHONHASHSEED=0
 
+ARG TL_BRANCH='will-qol'
+
 # 21.2.3: last known pip version to correctly work for us
 # 22.2.2: last version of pip tried that didn't work
 RUN python -m pip install pip==21.2.3 pip-tools==6.8.0
@@ -66,7 +68,7 @@ RUN mkdir /object_database \
 RUN mkdir /testlooper \
       && cd /testlooper \
       && git clone https://github.com/aprioriinvestments/test-looper.git . \
-      && git checkout  313a753fbd57e1f3364af60c1c6eaa0841abc6f4 \
+      && git checkout $TL_BRANCH \
       && python -m pip install --no-deps .
 
 
