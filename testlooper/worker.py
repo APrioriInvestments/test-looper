@@ -271,6 +271,7 @@ class WorkerService(ServiceBase):
                 # initialise the docker client, bind the tmpdir to let docker access it, run.
                 # this requires docker to have access to /tmp/
                 client = docker.from_env()
+                print(os.listdir(tmpdir))
                 volumes = {tmpdir: {"bind": mount_dir, "mode": "rw"}}
                 container = client.containers.run(
                     f"{image_name}:{commit_hash}",
