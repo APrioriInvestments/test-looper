@@ -12,8 +12,6 @@ from object_database.service_manager.ServiceManager import ServiceManager
 from object_database.util import genToken
 
 from testlooper.engine.git_watcher_service import GitWatcherService
-from testlooper.engine.local_engine_agent import LocalEngineAgent
-from testlooper.engine.local_engine_service import LocalEngineService
 from testlooper.schema.repo_schema import RepoConfig
 from testlooper.schema.schema import repo_schema, engine_schema, test_schema
 from testlooper.vcs import Git
@@ -136,32 +134,6 @@ def git_service(testlooper_db):
             pass
 
     yield git_service
-
-
-@pytest.fixture(scope="module")
-def local_engine_service(testlooper_db):
-    with tempfile.TemporaryDirectory() as tmp_dirname:
-        repo_path = tmp_dirname
-    with testlooper_db.transaction():
-        _ = engine_schema.LocalEngineConfig(path_to_git_repo=repo_path)
-        service = ServiceManager.createOrUpdateService(
-            LocalEngineService, "LocalEngineService", target_count=1
-        )
-    yield service
-
-
-@pytest.fixture(scope="module")
-def local_engine_agent(testlooper_db):
-    """The service runs out-of-process so if we want to use the agent attributes
-    we need to instantiate it ourselves."""
-
-    with tempfile.TemporaryDirectory() as tmp_dirname:
-        repo_path = tmp_dirname
-        git_repo = Git.get_instance(repo_path)
-        agent = LocalEngineAgent(
-            testlooper_db, source_control_store=git_repo, artifact_store=None
-        )
-        yield agent
 
 
 @pytest.fixture(scope="module")

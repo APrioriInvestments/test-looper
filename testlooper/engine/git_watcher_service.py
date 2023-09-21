@@ -76,18 +76,16 @@ class GitWatcherService(ServiceBase):
         # self.app.errorhandler(WebServiceError)(self.handleWebServiceError)
 
     def doWork(self, shouldStop):
-        """Spins up a WSGI server. Needs a GitWatcherConfig to have been created."""
+        """Spins up a WSGI server. Needs a TLConfig to have been created."""
         while not shouldStop.is_set():
             try:
                 with self.db.view():
-                    config = engine_schema.GitWatcherConfig.lookupUnique(
-                        service=self.serviceObject
-                    )
+                    config = engine_schema.TLConfig.lookupUnique()
                     if config is None:
                         raise RuntimeError(f"No config found for service {self.serviceObject}")
                     self._logger.setLevel(config.log_level)
-                    host = config.hostname
-                    port = config.port
+                    host = config.git_watcher_hostname
+                    port = config.git_watcher_port
                 self._logger.info("Starting Git Watcher Service on %s:%s" % (host, port))
                 server = WSGIServer((host, port), self.app)
                 server.serve_forever()
@@ -201,13 +199,13 @@ class GitWatcherService(ServiceBase):
             return {"message": "Internal Server Error", "details": str(e)}, 500
 
     @staticmethod
-    def configure(db, service_object, hostname, port, level_name="INFO"):
+    def configure(db, service_object, hostname, port, log_level_name="INFO"):
         """Gets or creats a Configuration ODB object, sets the hostname, port, log level."""
         db.subscribeToSchema(engine_schema)
         with db.transaction():
-            c = engine_schema.GitWatcherConfig.lookupAny(service=service_object)
+            c = engine_schema.TLConfig.lookupUnique()
             if not c:
-                c = engine_schema.GitWatcherConfig(service=service_object)
-            c.hostname = hostname
-            c.port = port
-            c.log_level = logging.getLevelName(level_name)
+                c = engine_schema.TLConfig()
+            c.git_watcher_hostname = hostname
+            c.git_watcher_port = port
+            c.log_level = logging.getLevelName(log_level_name)

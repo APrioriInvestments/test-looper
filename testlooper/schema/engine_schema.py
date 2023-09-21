@@ -2,7 +2,7 @@ import time
 from enum import Enum
 
 from abc import ABC, abstractmethod
-from object_database import Index, Indexed, service_schema
+from object_database import Index, Indexed
 from typed_python import Alternative, NamedTuple, OneOf, TupleOf, ListOf
 from .schema_declarations import engine_schema, repo_schema, test_schema
 
@@ -276,19 +276,6 @@ class GenerateTestConfigTask(TaskBase):
         return TaskReference.GenerateTestConfig(commit=self.commit)
 
 
-@engine_schema.define
-class LocalEngineConfig:
-    path_to_git_repo = str
-
-
-@engine_schema.define
-class GitWatcherConfig:
-    service = Indexed(service_schema.Service)
-    port = int
-    hostname = str
-    log_level = int
-
-
 ArtifactStoreConfig = Alternative(
     "ArtifactStoreConfig",
     LocalDisk=dict(
@@ -301,11 +288,14 @@ ArtifactStoreConfig = Alternative(
 
 
 @engine_schema.define
-class MessageBusConfig:
-    # NB this is a duplicate of GitWatcherConfig
-    service = Indexed(service_schema.Service)
-    port = int
-    hostname = str
+class TLConfig:
+    """Stores everything needed to run testlooper.
+    There should be exactly one of these objects."""
+
+    message_bus_port = int
+    message_bus_hostname = str
+    git_watcher_port = int
+    git_watcher_hostname = str
     log_level = int
     path_to_git_repo = str
     artifact_store_config = ArtifactStoreConfig

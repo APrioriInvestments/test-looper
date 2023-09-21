@@ -41,11 +41,11 @@ class DispatcherService(ServiceBase):
     def initialize(self):
         self.db.subscribeToSchema(engine_schema, test_schema, repo_schema)
         with self.db.view():
-            config = engine_schema.MessageBusConfig.lookupUnique(service=self.serviceObject)
+            config = engine_schema.TLConfig.lookupUnique()
             if config is None:
                 raise RuntimeError("No message bus config found - did you run configure()?")
-            self.hostname = config.hostname
-            self.port = config.port
+            self.hostname = config.message_bus_hostname
+            self.port = config.message_bus_port
             self._logger = setup_logger(__name__, level=config.log_level)
         self.bus_is_active = False
         self._workers: Set[ConnectionId] = set()  # , bool] = {}
@@ -319,18 +319,19 @@ class DispatcherService(ServiceBase):
         port: str,
         path_to_git_repo: str,
         artifact_store_config: ArtifactStoreConfig,
-        log_level_name="INFO",
+        log_level_name=None,
     ):
         """Tell the dispatcher (and worker) what port and hostname to talk to each other on."""
         db.subscribeToSchema(engine_schema)
         with db.transaction():
-            c = engine_schema.MessageBusConfig.lookupAny(service=service_object)
+            c = engine_schema.TLConfig.lookupUnique()
             if not c:
-                c = engine_schema.MessageBusConfig(service=service_object)
-            c.hostname = hostname
-            c.port = port
+                c = engine_schema.TLConfig
+            c.message_bus_hostname = hostname
+            c.message_bus_port = port
             c.path_to_git_repo = path_to_git_repo
-            c.log_level = logging.getLevelName(log_level_name)
+            if log_level_name:
+                c.log_level = logging.getLevelName(log_level_name)
             c.artifact_store_config = artifact_store_config
 
     @staticmethod

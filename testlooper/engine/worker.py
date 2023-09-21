@@ -25,7 +25,7 @@ from typed_python import SerializationContext
 from typing import Dict, Optional, List
 
 from testlooper.artifact_store import ArtifactStore
-from testlooper.dispatcher import Request, Response
+from testlooper.engine.dispatcher import Request, Response
 from testlooper.schema.engine_schema import StatusEvent, TaskReference
 from testlooper.schema.schema import engine_schema, repo_schema, test_schema
 from testlooper.schema.test_schema import StageResult, TestRunResult
@@ -89,15 +89,13 @@ class WorkerService(ServiceBase):
     def initialize(self):
         self.db.subscribeToSchema(engine_schema, repo_schema, test_schema)
         with self.db.view():
-            config = (
-                engine_schema.MessageBusConfig.lookupAny()
-            )  # dodgy, assumes only one config object
+            config = engine_schema.TLConfig.lookupUnique()
             if config is None:
                 raise RuntimeError(
                     "No message bus config found - did you run configure() on the dispatcher?"
                 )
-            self.hostname = config.hostname
-            self.port = config.port
+            self.hostname = config.message_bus_hostname
+            self.port = config.message_bus_port
             self.path_to_git_repo = config.path_to_git_repo
             self._logger = setup_logger(__name__, level=config.log_level)
             self.id = self.runtimeConfig.serviceInstance.service._identity

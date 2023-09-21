@@ -1,8 +1,8 @@
-"""Tests for the GitWatcherService class."""
+"""Tests for the  class."""
 import requests
 
 from testlooper.schema.schema import engine_schema, repo_schema
-from ..utils import git_service, testlooper_db, make_and_clear_repo
+from .utils import git_service, testlooper_db, make_and_clear_repo
 
 
 git_service = git_service  # required by flake8
@@ -14,9 +14,9 @@ make_and_clear_repo = make_and_clear_repo
 
 def get_url(db):
     with db.view():
-        assert (gwc := engine_schema.GitWatcherConfig.lookupAny()) is not None
-        port = gwc.port
-        hostname = gwc.hostname
+        assert (gwc := engine_schema.TLConfig.lookupAny()) is not None
+        port = gwc.git_watcher_port
+        hostname = gwc.git_watcher_hostname
     return f"http://{hostname}:{port}/git_updater"
 
 
@@ -40,9 +40,9 @@ def test_git_watcher_incorrect_repo(git_service, testlooper_db, make_and_clear_r
     reject the request, don't add the repo or the commits."""
 
     with testlooper_db.view():
-        assert (gwc := engine_schema.GitWatcherConfig.lookupAny()) is not None
-        port = gwc.port
-        hostname = gwc.hostname
+        assert (gwc := engine_schema.TLConfig.lookupAny()) is not None
+        port = gwc.git_watcher_port
+        hostname = gwc.git_watcher_hostname
 
     data = {
         "ref": "refs/heads/dev",
@@ -79,9 +79,9 @@ def test_git_watcher_incorrect_repo(git_service, testlooper_db, make_and_clear_r
 def test_git_watcher_empty_commits(git_service, testlooper_db, make_and_clear_repo):
     """If the commits list is empty, then handle that sensibly."""
     with testlooper_db.view():
-        assert (gwc := engine_schema.GitWatcherConfig.lookupAny()) is not None
-        hostname = gwc.hostname
-        port = gwc.port
+        assert (gwc := engine_schema.TLConfig.lookupAny()) is not None
+        hostname = gwc.git_watcher_hostname
+        port = gwc.git_watcher_port
 
     # if the branch is created, still create the branch.
     data = {
@@ -141,9 +141,9 @@ def test_git_watcher_empty_commits(git_service, testlooper_db, make_and_clear_re
 def test_git_watcher_commits_already_found(git_service, testlooper_db, make_and_clear_repo):
     """If there are commits we already know about, that's fine, but don't double-add."""
     with testlooper_db.view():
-        assert (gwc := engine_schema.GitWatcherConfig.lookupAny()) is not None
-        port = gwc.port
-        hostname = gwc.hostname
+        assert (gwc := engine_schema.TLConfig.lookupAny()) is not None
+        port = gwc.git_watcher_port
+        hostname = gwc.git_watcher_hostname
 
     data = {
         "ref": "refs/heads/dev",
@@ -193,9 +193,9 @@ def test_git_watcher_commits_already_found(git_service, testlooper_db, make_and_
 def test_git_watcher_branch_created(git_service, testlooper_db, make_and_clear_repo):
     """Test we can create a new Branch with a POST."""
     with testlooper_db.view():
-        assert (gwc := engine_schema.GitWatcherConfig.lookupAny()) is not None
-        port = gwc.port
-        hostname = gwc.hostname
+        assert (gwc := engine_schema.TLConfig.lookupAny()) is not None
+        port = gwc.git_watcher_port
+        hostname = gwc.git_watcher_hostname
 
     data = {
         "ref": "refs/heads/new-dev",

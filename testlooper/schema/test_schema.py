@@ -635,7 +635,7 @@ class TestResults:
     @property
     def artifact_store(self) -> ArtifactStore:
         """Return the artifact store by looking up the config."""
-        config = engine_schema.MessageBusConfig.lookupUnique()
+        config = engine_schema.TLConfig.lookupUnique()
         return ArtifactStore.from_config(config.artifact_store_config)
 
     def fail_rate(self, include_xfailed=False):
