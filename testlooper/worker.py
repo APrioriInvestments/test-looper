@@ -261,7 +261,6 @@ class WorkerService(ServiceBase):
                 test_plan_output = os.path.join(mount_dir, test_plan_file)
                 # get the image name from the config, which is either the image provided, or
                 # the image given from the docker build
-                # env = os.environ.copy()
                 env = {}
                 env["TEST_PLAN_OUTPUT"] = test_plan_output
                 env["REPO_ROOT"] = tmpdir
@@ -410,8 +409,7 @@ class WorkerService(ServiceBase):
                 self.source_control_store.create_worktree_and_reset_to_commit(
                     commit_hash, tmpdir
                 )
-                env = os.environ.copy()
-                env["REPO_ROOT"] = tmpdir
+                env = {"REPO_ROOT": tmpdir}
                 if env_variables is not None:
                     for key, value in env_variables.items():
                         env[key] = value
@@ -433,7 +431,6 @@ class WorkerService(ServiceBase):
                 container.remove(force=True)
 
             if output is not None:
-                self._logger.info("container logs: %s", output)
                 # TODO handle better if this is an error.
                 # current exception is 'str object has no attribute 'get'', which is naff.
                 # parse the output into Tests.
@@ -507,12 +504,12 @@ class WorkerService(ServiceBase):
             )
             # prep the env vars
             mount_dir = "/repo"
-            env_vars = {
+            env = {
                 "REPO_ROOT": mount_dir,
                 "TEST_OUTPUT": os.path.join("/tmp", "test_output.json"),
                 "TEST_INPUT": os.path.join("/tmp", "test_input.txt") if test_node_ids else "",
             }
-            env = self._prep_env_vars(**env_vars)
+            # env = self._prep_env_vars(**env_vars)
 
             # generate the test input file, if we need it.
             if test_node_ids:
@@ -561,11 +558,11 @@ class WorkerService(ServiceBase):
             tmp_commit_dir_mgr.cleanup()
             tmp_test_dir_mgr.cleanup()
 
-    def _prep_env_vars(self, **kwargs):
-        env = os.environ.copy()
-        for key, value in kwargs.items():
-            env[key] = value
-        return env
+    # def _prep_env_vars(self, **kwargs):
+    #     env = os.environ.copy()
+    #     for key, value in kwargs.items():
+    #         env[key] = value
+    #     return env
 
     def _generate_test_input_file(self, test_node_ids: List, path_to_input_file: str):
         with open(path_to_input_file, "w") as flines:
