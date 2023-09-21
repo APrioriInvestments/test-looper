@@ -269,6 +269,7 @@ class DispatcherService(ServiceBase):
         elif event.matches.IncomingConnectionClosed:
             self._remove_worker_from_pool(event.connectionId)
             self._logger.warning(f"Incoming connection {event.connectionId} closed.")
+
         elif event.matches.IncomingMessage:
             self._handle_message(event.connectionId, event.message)
         else:

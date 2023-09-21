@@ -180,6 +180,32 @@ class Homepage:
         layout = cells.Padding(bottom=20) * cells.Text("Repos", fontSize=H1_FONTSIZE)
         layout += cells.Card(repo_table)
 
+        def headerFun(x):
+            match x:
+                case "worker_id":
+                    return "Worker ID"
+                case "is_busy":
+                    return "Busy"
+                case "task_start_time":
+                    return "Task Start Time"
+                case "task":
+                    return "Current Task"
+                case _:
+                    return x
+
+        workers_table = cells.Table(
+            colFun=lambda: ["worker_id", "is_busy", "task_start_time", "task"],
+            rowFun=engine_schema.WorkerStatus.lookupAll,
+            headerFun=headerFun,
+            rendererFun=lambda data, field: getattr(data, field),
+            maxRowsPerPage=100,
+            sortColumn="worker_id",
+        )
+
+        layout += cells.Padding(top=50) * cells.Text(
+            "Workers", fontSize=H1_FONTSIZE
+        ) + cells.Card(workers_table)
+
         machines_table = cells.Table(
             colFun=lambda: ["Machine ID", "Hardware", "OS", "Uptime", "Status", "Logs"],
             rowFun=lambda: [],

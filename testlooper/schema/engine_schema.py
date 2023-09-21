@@ -2,7 +2,7 @@ import time
 from enum import Enum
 
 from abc import ABC, abstractmethod
-from object_database import Index, Indexed
+from object_database import Index, Indexed, service_schema
 from typed_python import Alternative, NamedTuple, OneOf, TupleOf, ListOf
 from .schema_declarations import engine_schema, repo_schema, test_schema
 
@@ -299,3 +299,14 @@ class TLConfig:
     log_level = int
     path_to_git_repo = str
     artifact_store_config = ArtifactStoreConfig
+
+
+@engine_schema.define
+class WorkerStatus:
+    """Tracks the state of a Worker service instance."""
+
+    instance = Indexed(service_schema.ServiceInstance)
+    worker_id = int
+    is_busy = bool
+    task_start_time = str
+    task = str

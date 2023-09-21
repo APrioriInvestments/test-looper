@@ -5,7 +5,6 @@ On spawn, tries repeatedly to connect to the dispatcher MessageBus, then waits
 for work in the form of Tasks. When a Task is received, it does the work, messages back
 with the status of the attempt, then asks for more.
 """
-
 import docker
 import json
 import os
@@ -18,6 +17,7 @@ import yaml
 
 import object_database.web.cells as cells
 from dataclasses import dataclass
+from datetime import datetime
 from object_database import ServiceBase, service_schema
 from object_database.message_bus import MessageBus, MessageBusEvent
 from object_database import RevisionConflictException
@@ -68,6 +68,9 @@ class TestRunOutput:
     warnings: Optional[List] = None
 
 
+BLANK_START_TIME = "" * len(datetime.now().isoformat())
+
+
 class WorkerService(ServiceBase):
     """Waits for work, and does it.
 
@@ -98,12 +101,20 @@ class WorkerService(ServiceBase):
             self.port = config.message_bus_port
             self.path_to_git_repo = config.path_to_git_repo
             self._logger = setup_logger(__name__, level=config.log_level)
-            self.id = self.runtimeConfig.serviceInstance.service._identity
+            self.id = self.runtimeConfig.serviceInstance._identity
             self.artifact_store_config = config.artifact_store_config
+        with self.db.transaction():
+            self.status_tracker = engine_schema.WorkerStatus(
+                instance=self.runtimeConfig.serviceInstance,
+                worker_id=self.id,
+                is_busy=False,
+                task_start_time=BLANK_START_TIME,
+            )
         self.connected = False
         self.retries = 0
         self.max_retries = 5
         self.busy = False
+        self.task_start_time = ""
         self.endpoint = (self.hostname, self.port)
         self.bus = MessageBus(
             busIdentity="TLMessageBusWorker",
@@ -196,6 +207,11 @@ class WorkerService(ServiceBase):
         with self.db.view():
             task = payload.dereference()
 
+        with self.db.transaction():
+            self.status_tracker.is_busy = True
+            self.status_tracker.task_start_time = datetime.now().isoformat()
+            self.status_tracker.task = str(task).split(".")[-1]
+
         if type(task) not in self.task_handlers:
             raise TypeError(f"Unknown task type {type(task)}")
 
@@ -215,6 +231,10 @@ class WorkerService(ServiceBase):
                 connectionId=self.connection_id,
                 message=Response.v1(message=f"Worker {self.id} failed", task_succeeded=False),
             )
+        with self.db.transaction():
+            self.status_tracker.is_busy = False
+            self.status_tracker.task_start_time = BLANK_START_TIME
+            self.status_tracker.task = ""
 
     def _generate_test_plan(self, task) -> bool:
         """Read the test config for the specified commit, and generate a TestPlan.
