@@ -69,6 +69,7 @@ RUN mkdir /testlooper \
       && cd /testlooper \
       && git clone https://github.com/aprioriinvestments/test-looper.git . \
       && git checkout $TL_BRANCH \
+      && echo "g" \
       && python -m pip install --no-deps .
 
 

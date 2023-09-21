@@ -271,6 +271,7 @@ class WorkerService(ServiceBase):
                 # this requires docker to have access to /tmp/
                 client = docker.from_env()
                 volumes = {tmpdir: {"bind": mount_dir, "mode": "rw"}}
+
                 container = client.containers.run(
                     f"{image_name}:{commit_hash}",
                     # the below listbrackets turn out to be crucial for unknown reasons
@@ -280,7 +281,7 @@ class WorkerService(ServiceBase):
                     working_dir=mount_dir,
                     remove=False,
                     detach=True,
-                    user=os.getuid(),
+                    # user=os.getuid(),
                 )
                 container.wait()
                 logs = container.logs()
@@ -415,7 +416,9 @@ class WorkerService(ServiceBase):
                         env[key] = value
 
                 client = docker.from_env()
-                volumes = {tmpdir: {"bind": mount_dir, "mode": "rw"}}
+                volumes = {
+                    tmpdir: {"bind": mount_dir, "mode": "rw"}
+                }  # , "/tmp": {"bind": "/tmp", "mode": "rw"}}
                 container = client.containers.run(
                     f"{env_image_name}:{env_commit_hash}",
                     [list_tests_command],
@@ -424,15 +427,13 @@ class WorkerService(ServiceBase):
                     volumes=volumes,
                     remove=False,
                     detach=True,
-                    user=os.getuid(),
+                    # user=os.getuid(),
                 )
                 container.wait()
                 output = container.logs().decode("utf-8")
                 container.remove(force=True)
 
             if output is not None:
-                # TODO handle better if this is an error.
-                # current exception is 'str object has no attribute 'get'', which is naff.
                 # parse the output into Tests.
                 test_dict = self._parse_list_tests_yaml(output)
                 with self.db.transaction():
@@ -581,7 +582,7 @@ class WorkerService(ServiceBase):
             detach=True,
             stdout=True,
             stderr=True,
-            user=os.getuid(),
+            # user=os.getuid(),
         )
         container.wait()
 
@@ -800,19 +801,23 @@ class WorkerService(ServiceBase):
 
     def _parse_list_tests_yaml(self, list_tests_yaml: str) -> Dict[str, test_schema.Test]:
         """Parse the output of the list_tests command, and generate Tests if required."""
-        yaml_dict = yaml.safe_load(list_tests_yaml)
-        parsed_dict = {}
-        with self.db.transaction():
-            for test_name, test_dict in yaml_dict.items():
-                test = test_schema.Test.lookupUnique(
-                    name_and_labels=(test_name, test_dict.get("labels", []))
-                )
+        try:
+            yaml_dict = yaml.safe_load(list_tests_yaml)
+            parsed_dict = {}
+            with self.db.transaction():
+                for test_name, test_dict in yaml_dict.items():
+                    test = test_schema.Test.lookupUnique(
+                        name_and_labels=(test_name, test_dict.get("labels", []))
+                    )
 
-                if test is None:
-                    test = test_schema.Test(
-                        name=test_name,
-                        labels=test_dict.get("labels", []),
-                        path=test_dict["path"],
-                    )  # TODO this needs a Parent
-                parsed_dict[test_name] = test
-        return parsed_dict
+                    if test is None:
+                        test = test_schema.Test(
+                            name=test_name,
+                            labels=test_dict.get("labels", []),
+                            path=test_dict["path"],
+                        )  # TODO this needs a Parent
+                    parsed_dict[test_name] = test
+            return parsed_dict
+        except Exception as e:
+            self._logger.error(f"Failed to parse list_tests output: {list_tests_yaml}")
+            raise e

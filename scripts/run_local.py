@@ -91,8 +91,9 @@ def run_local(
             git_repo.clone_from(source_repo=repo_path)
             # for now, pull all remote branches
             for branch in git_repo.list_branches_for_remote("origin").keys():
-                git_repo.checkout_branch(branch)
-                time.sleep(0.1)
+                if not branch_prefix or branch.startswith(branch_prefix):
+                    git_repo.checkout_branch(branch)
+                # time.sleep(0.1)
             repo_path = new_repo_path
 
         if repo_initial_branch:
@@ -259,7 +260,8 @@ def scan_repo(
         # _ = repo_schema.TestConfig(config_str=test_config, repo=repo)
 
     for branch_name in git_repo.list_branches():
-        if branch_prefix and branch_name.startswith(branch_prefix):
+        if branch_prefix and not branch_name.startswith(branch_prefix):
+            print('skipping branch "%s"' % branch_name)
             continue
         # don't spam the POSTs
         time.sleep(0.1)
