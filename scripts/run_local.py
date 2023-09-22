@@ -171,6 +171,7 @@ def run_local(
                 hostname="localhost",
                 port=git_watcher_port,
                 log_level_name=log_level_name,
+                path_to_config=config_path,
             )
 
             # overworked

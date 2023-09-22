@@ -298,6 +298,7 @@ class TLConfig:
     git_watcher_hostname = str
     log_level = int
     path_to_git_repo = str
+    path_to_config = str
     artifact_store_config = ArtifactStoreConfig
 
 

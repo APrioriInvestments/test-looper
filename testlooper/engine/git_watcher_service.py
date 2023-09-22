@@ -72,8 +72,6 @@ class GitWatcherService(ServiceBase):
         self.app.add_url_rule(
             "/git_updater", view_func=self.catch_git_change, methods=["POST"]
         )
-        self.config_path = ".testlooper/config.yaml"  # FIXME this is not where this should be
-        # self.app.errorhandler(WebServiceError)(self.handleWebServiceError)
 
     def doWork(self, shouldStop):
         """Spins up a WSGI server. Needs a TLConfig to have been created."""
@@ -86,6 +84,7 @@ class GitWatcherService(ServiceBase):
                     self._logger.setLevel(config.log_level)
                     host = config.git_watcher_hostname
                     port = config.git_watcher_port
+                    self.config_path = config.path_to_config
                 self._logger.info("Starting Git Watcher Service on %s:%s" % (host, port))
                 server = WSGIServer((host, port), self.app)
                 server.serve_forever()
@@ -199,7 +198,7 @@ class GitWatcherService(ServiceBase):
             return {"message": "Internal Server Error", "details": str(e)}, 500
 
     @staticmethod
-    def configure(db, service_object, hostname, port, log_level_name="INFO"):
+    def configure(db, service_object, hostname, port, path_to_config, log_level_name="INFO"):
         """Gets or creats a Configuration ODB object, sets the hostname, port, log level."""
         db.subscribeToSchema(engine_schema)
         with db.transaction():
@@ -209,3 +208,4 @@ class GitWatcherService(ServiceBase):
             c.git_watcher_hostname = hostname
             c.git_watcher_port = port
             c.log_level = logging.getLevelName(log_level_name)
+            c.path_to_config = path_to_config

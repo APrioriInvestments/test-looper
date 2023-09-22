@@ -116,7 +116,11 @@ def git_service(testlooper_db):
         )
 
     GitWatcherService.configure(
-        testlooper_db, git_service, hostname="localhost", port=GIT_WATCHER_PORT
+        testlooper_db,
+        git_service,
+        hostname="localhost",
+        port=GIT_WATCHER_PORT,
+        path_to_config=".testlooper/config.yaml",
     )
 
     with testlooper_db.transaction():
