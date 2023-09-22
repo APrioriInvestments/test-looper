@@ -60,6 +60,7 @@ GIT_WATCHER_PORT = 9999
 REPO_PATH = "/home/willg/Dev/testlooper-test"
 NUM_WORKERS = 1
 SCAN_DEPTH = 3
+LOG_PATH = "log/"
 
 
 def run_local(
@@ -174,8 +175,7 @@ def run_local(
                 path_to_config=config_path,
             )
 
-            # overworked FIXME STORE IN CONFIG
-            log_path = os.path.join(tmp_dirname1, "log")
+            log_path = os.path.join(tmp_dirname1, LOG_PATH)
             logger.info('Logging to "%s"', log_path)
             DispatcherService.configure(
                 database,

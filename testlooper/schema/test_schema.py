@@ -708,14 +708,14 @@ class TestResults:
 
         layout += cells.Text("Individual Results:", fontSize=H2_FONTSIZE)
         for result in self.results:
-            layout += cells.Text(f"UUID: {result.uuid}")
-            layout += cells.Text(f"Outcome: {result.outcome}")
-            layout += cells.Text(f"Duration: {result.duration_ms} ms")
+            result_layout = cells.Text(f"UUID: {result.uuid}")
+            result_layout += cells.Text(f"Outcome: {result.outcome}")
+            result_layout += cells.Text(f"Duration: {result.duration_ms} ms")
             formatted_time = datetime.utcfromtimestamp(result.start_time).strftime(
                 "%Y-%m-%d %H:%M:%S UTC"
             )
-            layout += cells.Text(f"Start Time: {formatted_time}")
-            layout += cells.Text("")
+            result_layout += cells.Text(f"Start Time: {formatted_time}")
+            result_layout += cells.Text("")
 
             # log. Look up the config. Pull the results corresponding to that config.
 
@@ -730,11 +730,16 @@ class TestResults:
                 )
             ).decode("utf-8")
 
-            layout += cells.Text("Run STDOUT", fontSize=H2_FONTSIZE)
-            layout += cells.Text(stdout)
+            result_layout += cells.Text("Run STDOUT:")
+            result_layout += cells.Text(
+                stdout, preformatted=True, monospace=True, selectable=True
+            )
 
-            layout += cells.Text("Run STDERR", fontSize=H2_FONTSIZE)
-            layout += cells.Text(stderr)
+            result_layout += cells.Text("Run STDERR:")
+            result_layout += cells.Text(
+                stderr, preformatted=True, monospace=True, selectable=True
+            )
+            layout += cells.Scrollable(result_layout)
 
         return add_menu_bar(
             cells.HCenter(layout),
