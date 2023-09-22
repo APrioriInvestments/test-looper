@@ -548,17 +548,19 @@ class WorkerService(ServiceBase):
                 env=env,
                 working_dir=mount_dir,
             )
-            self.artifact_store.save(
-                TEST_RUN_LOG_FORMAT_STDOUT.format(suite_name, commit_hash), output.out
-            )
-            self.artifact_store.save(
-                TEST_RUN_LOG_FORMAT_STDERR.format(suite_name, commit_hash), output.err
-            )
-            # evaluate the results.
-            self._evaluate_test_results(
+            uuid_strs = self._evaluate_test_results(
                 path_to_test_output=os.path.join(tmp_test_dir, "test_output.json"),
                 task=task,
             )
+            for uuid_str in uuid_strs:
+                self.artifact_store.save(
+                    TEST_RUN_LOG_FORMAT_STDOUT.format(suite_name, commit_hash, uuid_str),
+                    output.out,
+                )
+                self.artifact_store.save(
+                    TEST_RUN_LOG_FORMAT_STDERR.format(suite_name, commit_hash, uuid_str),
+                    output.err,
+                )
 
         except Exception as e:
             # TODO error out the suites.
@@ -611,9 +613,11 @@ class WorkerService(ServiceBase):
 
         return CommandOutput(out=out, err=err)
 
-    def _evaluate_test_results(self, path_to_test_output: str, task):
+    def _evaluate_test_results(self, path_to_test_output: str, task) -> List[str]:
         """Parse the test_output, which should be a json file adhering to the TestRunOutput
         schema above. Update ODB accordingly.
+
+        Returns a list of UUIDS for the test results.
         """
         with self.db.view():
             commit = task.commit
@@ -642,6 +646,7 @@ class WorkerService(ServiceBase):
             )
 
         # match the result to the task and testresults object.
+        uuids = []
         for result in parsed_test_results.tests:
             result = Result(**result)
             stages = {}
@@ -655,13 +660,15 @@ class WorkerService(ServiceBase):
                 total_duration += stage["duration"]
 
             test_name = result.nodeid.split("::")[-1]
+            uuid_str = str(uuid.uuid4())
             test_run_result = TestRunResult(
-                uuid=str(uuid.uuid4()),
+                uuid=uuid_str,
                 outcome=result.outcome,
                 duration_ms=total_duration,
                 start_time=parsed_test_results.created,
                 stages=stages,
             )
+            uuids.append(uuid_str)
 
             with self.db.transaction():
                 results_obj = test_schema.TestResults.lookupUnique(
@@ -673,6 +680,8 @@ class WorkerService(ServiceBase):
                     )
 
                 results_obj.add_test_run_result(test_run_result)
+
+        return uuids
 
     def _generate_commit_test_defn(self, task) -> bool:
         """Builds a CommitTestDefinition object and runs set_test_plan() on it.

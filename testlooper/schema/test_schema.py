@@ -274,8 +274,10 @@ class CommitTestDefinition:
                     name_and_hash=(environment, self.commit.hash)
                 )
 
-                # FIXME temp: skip suites with linux-native as AWS is unsupported
                 if env is None:
+                    logger.warning(
+                        f"No env found for commit {self.commit.hash} and name {environment}"
+                    )
                     continue
 
                 # TODO move these build deps somewhere else
@@ -717,19 +719,22 @@ class TestResults:
 
             # log. Look up the config. Pull the results corresponding to that config.
 
-        # FIXME this assumes only one run. Use the UUID instead.
-        stdout = self.artifact_store.load(
-            TEST_RUN_LOG_FORMAT_STDOUT.format(self.suite.name, self.commit.hash)
-        ).decode("utf-8")
-        stderr = self.artifact_store.load(
-            TEST_RUN_LOG_FORMAT_STDERR.format(self.suite.name, self.commit.hash)
-        ).decode("utf-8")
+            stdout = self.artifact_store.load(
+                TEST_RUN_LOG_FORMAT_STDOUT.format(
+                    self.suite.name, self.commit.hash, result.uuid
+                )
+            ).decode("utf-8")
+            stderr = self.artifact_store.load(
+                TEST_RUN_LOG_FORMAT_STDERR.format(
+                    self.suite.name, self.commit.hash, result.uuid
+                )
+            ).decode("utf-8")
 
-        layout += cells.Text("Run STDOUT", fontSize=H2_FONTSIZE)
-        layout += cells.Text(stdout)
+            layout += cells.Text("Run STDOUT", fontSize=H2_FONTSIZE)
+            layout += cells.Text(stdout)
 
-        layout += cells.Text("Run STDERR", fontSize=H2_FONTSIZE)
-        layout += cells.Text(stderr)
+            layout += cells.Text("Run STDERR", fontSize=H2_FONTSIZE)
+            layout += cells.Text(stderr)
 
         return add_menu_bar(
             cells.HCenter(layout),

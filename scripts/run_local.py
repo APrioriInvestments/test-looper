@@ -174,8 +174,9 @@ def run_local(
                 path_to_config=config_path,
             )
 
-            # overworked
+            # overworked FIXME STORE IN CONFIG
             log_path = os.path.join(tmp_dirname1, "log")
+            logger.info('Logging to "%s"', log_path)
             DispatcherService.configure(
                 database,
                 dispatcher,
