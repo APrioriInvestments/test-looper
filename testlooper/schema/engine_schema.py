@@ -176,7 +176,6 @@ class ResultBase(ABC):
 class TestPlanGenerationResult(ResultBase):
     """Keep track of a task to generate a test plan."""
 
-    # TODO (Will): resolve the overlap between this and CommitTestDefinition
     commit = Indexed(repo_schema.Commit)
     data = OneOf(
         None, test_schema.TestPlan
@@ -208,7 +207,7 @@ class BuildDockerImageResult(ResultBase):
 
 @engine_schema.define
 class TestSuiteGenerationTask(TaskBase):
-    commit = Indexed(repo_schema.Commit)  # TODO this index is likely temporary
+    commit = Indexed(repo_schema.Commit)
     environment = test_schema.Environment
     name = str
     commit_and_name = Index("commit", "name")

@@ -6,7 +6,7 @@ import logging
 import os
 import re
 
-from typing import Dict, Callable, Union
+from typing import Dict, Callable, Union, List
 
 import object_database.web.cells as cells
 
@@ -25,7 +25,9 @@ def get_tl_link(instance) -> str:
     return f"/services/{TL_SERVICE_NAME}/{type_name}/{instance._identity}"
 
 
-def add_menu_bar(cell: cells.Cell, menu_items: Dict[str, Union[str, Callable]]) -> cells.Cell:
+def add_menu_bar(
+    cell: cells.Cell, menu_items: Dict[str, Union[str, Callable, List]]
+) -> cells.Cell:
     """Given a cell representing a page, add a menu above.
 
     Args:
@@ -34,11 +36,20 @@ def add_menu_bar(cell: cells.Cell, menu_items: Dict[str, Union[str, Callable]]) 
             values the string or function passed to Button.
             TODO: If the value is a list, generate a Dropdown
     """
-    menu = cells.HorizontalSequence(
-        [cells.Button(text, link) for text, link in menu_items.items()]
-    )
+    menu = []
+    for text, item in menu_items.items():
+        if isinstance(item, (list, tuple)):
+            menu.append(generate_dropdown(text, item))
+        else:
+            menu.append(cells.Button(text, item))
+
+    menu = cells.HorizontalSequence(menu)
     menu_bar_spacing = 25
     return cells.Padding(bottom=menu_bar_spacing) * menu + cell
+
+
+def generate_dropdown(text: str, items) -> cells.Cell:
+    return cells.Dropdown(title=text, headersAndLambdas=None)
 
 
 def hash_docker_build_env(dockerfile: str) -> str:

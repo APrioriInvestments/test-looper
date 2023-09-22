@@ -293,7 +293,6 @@ class Commit:
         return test_definition.test_suites.get(name, None)
 
     def clear_test_results(self):
-        # TODO
         logger.info(f"Clearing Test Results for commit {self.hash}")
         for result in test_schema.TestResults.lookupAll(commit=self):
             result.clear_results()
