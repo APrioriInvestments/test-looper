@@ -112,7 +112,7 @@ class WorkerService(ServiceBase):
             )
         self.connected = False
         self.retries = 0
-        self.max_retries = 5
+        self.max_retries = 10
         self.busy = False
         self.task_start_time = ""
         self.endpoint = (self.hostname, self.port)
@@ -165,7 +165,7 @@ class WorkerService(ServiceBase):
             if self.retries < self.max_retries:
                 self.retries += 1
                 self._logger.warning("Worker failed to connect to dispatcher, retrying")
-                time.sleep(0.1)
+                time.sleep(0.1 * 2**self.retries)
                 self.connection_id = self.bus.connect((self.hostname, self.port))
             else:
                 self._logger.error("Worker failed to connect to dispatcher, giving up")
