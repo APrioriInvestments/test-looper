@@ -149,22 +149,27 @@ class GitWatcherService(ServiceBase):
 
                 branch_name = payload.ref.split("/")[-1]
                 if payload.created:
-                    # make a Branch
-                    assert (
-                        repo_schema.Branch.lookupUnique(repo_and_name=(repo, branch_name))
-                        is None
-                    )
                     top_commit = repo_schema.Commit.lookupUnique(hash=payload.after)
-                    branch = repo_schema.Branch(
-                        repo=repo, name=branch_name, top_commit=top_commit
-                    )
-                    self._logger.info(f"Created branch {branch.name} on repo {repo.name}")
-
+                    if (
+                        branch := repo_schema.Branch.lookupUnique(
+                            repo_and_name=(repo, branch_name)
+                        )
+                    ) is None:
+                        branch = repo_schema.Branch(
+                            repo=repo, name=branch_name, top_commit=top_commit
+                        )
+                        self._logger.info(f"Created branch {branch.name} on repo {repo.name}")
+                    else:
+                        branch.top_commit = top_commit
                     # generate a DesiredTesting (temporarily, this is 1
                     # runs_desired for everyone).
-                    bdt = test_schema.BranchDesiredTesting(
-                        branch=branch, desired_testing=DEFAULT_DESIRED_TESTING
-                    )
+
+                    if (
+                        bdt := test_schema.BranchDesiredTesting.lookupUnique(branch=branch)
+                    ) is None:
+                        bdt = test_schema.BranchDesiredTesting(
+                            branch=branch, desired_testing=DEFAULT_DESIRED_TESTING
+                        )
                     for commit in new_commits:
                         bdt.apply_to(commit)
                 else:

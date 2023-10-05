@@ -271,9 +271,11 @@ def scan_repo(
     primary_branch_name = parsed_test_config["primary-branch"]
 
     with database.transaction():
-        # spin up the initial stuff
-        repo_config = RepoConfig.Local(path=path_to_repo)
-        repo = repo_schema.Repo(name=repo_name, config=repo_config)
+        if repo := repo_schema.Repo.lookupUnique(name=repo_name):
+            logger.info(f"Repo {repo_name} already exists, skipping creation")
+        else:
+            repo_config = RepoConfig.Local(path=path_to_repo)
+            repo = repo_schema.Repo(name=repo_name, config=repo_config)
         # _ = repo_schema.TestConfig(config_str=test_config, repo=repo)
 
     for branch_name in git_repo.list_branches():
