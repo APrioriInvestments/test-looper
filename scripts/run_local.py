@@ -31,6 +31,7 @@ from object_database import connect, core_schema, service_schema
 from object_database.database_connection import DatabaseConnection
 from object_database.frontends.service_manager import startServiceManagerProcess
 from object_database.service_manager.ServiceManager import ServiceManager
+from object_database.service_manager.ServiceInstance import CodebaseLockedException
 from object_database.util import genToken
 from object_database.web.ActiveWebService import ActiveWebService
 from object_database.web.ActiveWebServiceSchema import active_webservice_schema
@@ -158,23 +159,27 @@ def run_local(
                 config={"company_name": "A Testing Company"},
             )
 
-            with database.transaction():
-                git_service = ServiceManager.createOrUpdateService(
-                    GitWatcherService, "GitWatcherService", target_count=0
-                )
-
-                dispatcher = ServiceManager.createOrUpdateService(
-                    DispatcherService, "DispatcherService", target_count=0
-                )
-
-                # Worker
-                _ = ServiceManager.createOrUpdateService(
-                    WorkerService, "WorkerService", target_count=0
-                )
+            services = {}
+            for service_type, service_name in zip(
+                [GitWatcherService, DispatcherService, WorkerService],
+                ["GitWatcherService", "DispatcherService", "WorkerService"],
+            ):
+                with database.transaction():
+                    try:
+                        services[service_name] = ServiceManager.createOrUpdateService(
+                            service_type, service_name, target_count=0
+                        )
+                    except CodebaseLockedException:
+                        # unlock
+                        locked_service = service_schema.Service.lookupAny(name=service_name)
+                        locked_service.unlock()
+                        services[service_name] = ServiceManager.createOrUpdateService(
+                            service_type, service_name, target_count=0
+                        )
 
             GitWatcherService.configure(
                 database,
-                git_service,
+                services["GitWatcherService"],
                 hostname="localhost",
                 port=git_watcher_port,
                 log_level_name=log_level_name,
@@ -185,7 +190,7 @@ def run_local(
             logger.info('Logging to "%s"', log_path)
             DispatcherService.configure(
                 database,
-                dispatcher,
+                services["DispatcherService"],
                 hostname="localhost",
                 port=dispatcher_port,
                 log_level_name=log_level_name,
@@ -194,21 +199,31 @@ def run_local(
             )
 
             with database.transaction():
+                # displays the frontends for each service
                 ServiceManager.startService("ActiveWebService", 1)
-                # Engine - handles the Tasks
+
+                # engine - handles task dispatch and execution
                 ServiceManager.startService("DispatcherService", 1)
                 ServiceManager.startService("WorkerService", num_workers)
-                # TL frontend
-                _ = ServiceManager.createOrUpdateService(
-                    TestlooperService, TL_SERVICE_NAME, target_count=1
-                )
-                # git watcher - receives post requests from git webhooks and
-                # updates ODB accordingly
+                # Git watcher - handles updates via Github/Gitlab webhooks
                 ServiceManager.startService("GitWatcherService", 1)
-                # schema monitor - just for admin and testing
-                _ = ServiceManager.createOrUpdateService(
-                    SchemaMonitorService, "SchemaMonitorService", target_count=1
-                )
+                # TL frontend and debugging utility
+                for service_type, service_name in zip(
+                    [TestlooperService, SchemaMonitorService],
+                    [TL_SERVICE_NAME, "SchemaMonitorService"],
+                ):
+                    try:
+                        _ = ServiceManager.createOrUpdateService(
+                            service_type, service_name, target_count=1
+                        )
+                    except CodebaseLockedException:
+                        # unlock
+                        locked_service = service_schema.Service.lookupAny(name=service_name)
+                        locked_service.unlock()
+                        _ = ServiceManager.createOrUpdateService(
+                            service_type, service_name, target_count=1
+                        )
+
             time.sleep(2)  # temp - let the services start up before we start hitting them
             scan_repo(
                 database,
