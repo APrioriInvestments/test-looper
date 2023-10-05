@@ -1,3 +1,6 @@
+# Stores the redis db locally
+.redis/
+
 # VSCode cruft
 .vscode/
 

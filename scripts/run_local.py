@@ -77,6 +77,7 @@ def run_local(
     scan_depth=SCAN_DEPTH,
     branch_prefix=None,
     repo_initial_branch=None,
+    redis_port=None,
 ):
     with (
         tempfile.TemporaryDirectory() as tmp_dirname1,
@@ -114,7 +115,12 @@ def run_local(
         try:
             # spin up the required TL services
             server = startServiceManagerProcess(
-                tmp_dirname1, odb_port, token, loglevelName=log_level_name, logDir=False
+                tmp_dirname1,
+                odb_port,
+                token,
+                loglevelName=log_level_name,
+                logDir=False,
+                redisPort=redis_port,
             )
             database = connect("localhost", odb_port, token, retry=True)
             database.subscribeToSchema(

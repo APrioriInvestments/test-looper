@@ -12,3 +12,4 @@ log_level_name: "INFO"
 git_watcher_port: 8999
 num_workers: 16
 branch_prefix:
+redis_port: 1115
