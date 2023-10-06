@@ -79,6 +79,7 @@ def run_local(
     branch_prefix=None,
     repo_initial_branch=None,
     redis_port=None,
+    redis_host="redis",
 ):
     with (
         tempfile.TemporaryDirectory() as tmp_dirname1,
@@ -122,6 +123,7 @@ def run_local(
                 loglevelName=log_level_name,
                 logDir=False,
                 redisPort=redis_port,
+                redisHost=redis_host,
             )
             database = connect("localhost", odb_port, token, retry=True)
             database.subscribeToSchema(

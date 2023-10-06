@@ -1,49 +1,33 @@
-# # stands up the testlooper docker container, and the redis docker container.
-# version: '3'
-# services:
-#   # web:
-#   #   build: ./web
-#   #   ports:
-#   #     - "5000:5000"
-#   #   depends_on:
-#   #     - redis
-#   redis:
-#     image: redis
-#     ports:
-#       - "${ODB_REDIS_PORT}:${ODB_REDIS_PORT}"
-#     volumes:
-#       - "${INSTALL_ROOT}/logs:/var/log/redis"
-#       - "${REDIS_STORE}:/data"
-#     command: .redis/odb_redis_ctl.sh start
-
-# This file expects a .env file that has e.g.:
-# ODB_REDIS_PORT=1115
-# ODB_REDIS_BIND=0.0.0.0  # this is for testing, for prod we want docker networking.
-# INSTALL_ROOT= .redis
-# REDIS_NAME=odb_redis
-# REDIS_STORE="$INSTALL_ROOT/$REDIS_NAME"
-# TL_HTTP_PORT=8001
-
-
 version: '3'
 services:
   redis:
     image: redis
+    # network_mode: host
+    networks:
+      - tl_network
     volumes:
       - $REDIS_STORE:/data
-      - $REDIS_LOGS:/logs
     ports:
-      - $ODB_REDIS_PORT:$ODB_REDIS_PORT
+      - $ODB_REDIS_PORT:$ODB_REDIS_PORT  # this is for testing, for prod we want docker networking.
     command:
       redis-server --bind $ODB_REDIS_BIND --port $ODB_REDIS_PORT
           --dbfilename db.rdb --dir /data --save 900 1 --save 300 10 --save 60 10000
 
-  # testlooper:
-  #   build: ./scripts
-
-  #   depends_on:
-  #     - redis
-  #   environment:
-  #     - REDIS_HOST=$ODB_REDIS_BIND
-  #     - REDIS_PORT=$ODB_REDIS_PORT
-  #     - TL_HTTP_PORT=$TL_HTTP_PORT
+  testlooper:
+    build: .docker
+    depends_on:
+      - redis
+    networks:
+      - tl_network
+    # network_mode: host
+    ports:
+      - $TL_HTTP_PORT:$TL_HTTP_PORT
+    volumes:
+      - /tmp:/tmp
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/testlooper
+    command:
+      /bin/bash run_tl.sh
+networks:
+  tl_network:
+    driver: bridge
